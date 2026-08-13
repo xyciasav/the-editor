@@ -152,14 +152,16 @@ ipcMain.handle("shoot:create", async (event, shoot) => {
       total: Math.min(shoot.files.length, 40),
       message: `Creating preview ${index + 1} of ${Math.min(shoot.files.length, 40)}`,
     });
-    const outputStem = path.join(
-      previewDir,
-      String(index + 1).padStart(4, "0"),
-    );
+    const photoKey = crypto
+      .createHash("sha256")
+      .update(path.resolve(photo.path).toLowerCase())
+      .digest("hex")
+      .slice(0, 20);
+    const outputStem = path.join(previewDir, photoKey);
     const output = `${outputStem}.jpg`;
     const stagedInput = path.join(
       stagingDir,
-      `${String(index + 1).padStart(4, "0")}${path.extname(photo.name).toLowerCase()}`,
+      `${photoKey}${path.extname(photo.name).toLowerCase()}`,
     );
     try {
       if (

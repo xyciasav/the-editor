@@ -537,25 +537,37 @@ function App() {
                 <p className="eyebrow">RETOUCH ANALYSIS · NON-DESTRUCTIVE</p>
                 <h1>Natural portrait review</h1>
               </div>
-              <div className="compare">
-                {(["Original", "Edited", "Retouched"] as const).map((mode) => (
-                  <button
-                    className={compare === mode && !splitView ? "selected" : ""}
-                    onClick={() => {
-                      setCompare(mode);
-                      setSplitView(false);
-                    }}
-                    key={mode}
-                  >
-                    {mode}
-                  </button>
-                ))}
+              <div className="headerActions">
                 <button
-                  className={splitView ? "selected" : ""}
-                  onClick={() => setSplitView((value) => !value)}
+                  className="secondary"
+                  onClick={() => setStage("shoots")}
                 >
-                  Split
+                  ← Back to shoot
                 </button>
+                <div className="compare">
+                  {(["Original", "Edited", "Retouched"] as const).map(
+                    (mode) => (
+                      <button
+                        className={
+                          compare === mode && !splitView ? "selected" : ""
+                        }
+                        onClick={() => {
+                          setCompare(mode);
+                          setSplitView(false);
+                        }}
+                        key={mode}
+                      >
+                        {mode}
+                      </button>
+                    ),
+                  )}
+                  <button
+                    className={splitView ? "selected" : ""}
+                    onClick={() => setSplitView((value) => !value)}
+                  >
+                    Split
+                  </button>
+                </div>
               </div>
             </header>
             <div className="retouchLayout">
@@ -733,9 +745,24 @@ function App() {
                 <p className="eyebrow">LOCAL WORKSPACE</p>
                 <h1>Your shoots</h1>
               </div>
-              <button className="primary" onClick={chooseShoot}>
-                ＋ New shoot
-              </button>
+              <div className="headerActions">
+                {shoot && (
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setShoot(null);
+                      setCreated(null);
+                      setThumbnails({});
+                      setSelectedPaths(new Set());
+                    }}
+                  >
+                    ← Back to start
+                  </button>
+                )}
+                <button className="primary" onClick={chooseShoot}>
+                  ＋ New shoot
+                </button>
+              </div>
             </header>
             {!shoot ? (
               <div className="hero">
