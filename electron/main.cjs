@@ -15,6 +15,10 @@ function runDarktable(args) {
   });
 }
 
+function darktablePath(filePath) {
+  return filePath.replace(/\\/g, "/");
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 1040, minHeight: 700,
@@ -66,7 +70,7 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
     try {
       if (!fs.existsSync(output) || fs.statSync(output).mtimeMs < fs.statSync(photo.path).mtimeMs) {
         fs.copyFileSync(photo.path, stagedInput);
-        const result = await runDarktable([stagedInput, outputStem, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", cacheDir, "--configdir", configDir]);
+        const result = await runDarktable([darktablePath(stagedInput), darktablePath(outputStem), "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", darktablePath(cacheDir), "--configdir", darktablePath(configDir)]);
         if (!fs.existsSync(output)) {
           const diagnostic = `${result.stderr || ""}\n${result.stdout || ""}`.trim();
           throw new Error(diagnostic || "Darktable finished without creating an output file.");
