@@ -60,12 +60,17 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
   const failures = [];
 
   for (const [index, photo] of shoot.files.slice(0, 40).entries()) {
-    const output = path.join(previewDir, `${String(index + 1).padStart(4, "0")}.jpg`);
+    const outputStem = path.join(previewDir, String(index + 1).padStart(4, "0"));
+    const output = `${outputStem}.jpg`;
     const stagedInput = path.join(stagingDir, `${String(index + 1).padStart(4, "0")}${path.extname(photo.name).toLowerCase()}`);
     try {
       if (!fs.existsSync(output) || fs.statSync(output).mtimeMs < fs.statSync(photo.path).mtimeMs) {
         fs.copyFileSync(photo.path, stagedInput);
-        await runDarktable([stagedInput, output, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", cacheDir, "--configdir", configDir]);
+        const result = await runDarktable([stagedInput, outputStem, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", cacheDir, "--configdir", configDir]);
+        if (!fs.existsSync(output)) {
+          const diagnostic = `${result.stderr || ""}\n${result.stdout || ""}`.trim();
+          throw new Error(diagnostic || "Darktable finished without creating an output file.");
+        }
       }
       const data = fs.readFileSync(output).toString("base64");
       previews.push({ ...photo, preview: `data:image/jpeg;base64,${data}` });
