@@ -4,13 +4,24 @@ import "./styles.css";
 
 type DarktableStatus = { available: boolean; path: string; version?: string };
 type Photo = { name: string; path: string; type: string };
-declare global { interface Window { editor?: { darktableStatus(): Promise<DarktableStatus>; chooseShoot(): Promise<{ folder: string; files: Photo[] } | null> } } }
+type CreatedShoot = { projectDir: string; previews: (Photo & { preview: string })[]; failures: { name: string; message: string }[]; total: number };
+declare global { interface Window { editor?: { darktableStatus(): Promise<DarktableStatus>; chooseShoot(): Promise<{ folder: string; files: Photo[] } | null>; createShoot(shoot: { folder: string; files: Photo[] }): Promise<CreatedShoot> } } }
 
 function App() {
   const [darktable, setDarktable] = useState<DarktableStatus | null>(null);
   const [shoot, setShoot] = useState<{ folder: string; files: Photo[] } | null>(null);
+  const [created, setCreated] = useState<CreatedShoot | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
   useEffect(() => { window.editor?.darktableStatus().then(setDarktable); }, []);
-  const chooseShoot = async () => { const result = await window.editor?.chooseShoot(); if (result) setShoot(result); };
+  const chooseShoot = async () => { const result = await window.editor?.chooseShoot(); if (result) { setShoot(result); setCreated(null); setError(""); } };
+  const createShoot = async () => {
+    if (!shoot || !window.editor) return;
+    setProcessing(true); setError("");
+    try { setCreated(await window.editor.createShoot(shoot)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Preview generation failed."); }
+    finally { setProcessing(false); }
+  };
   return <main>
     <aside>
       <div className="brand"><span className="mark">C</span><div><strong>THE EDITOR</strong><small>Capture the Chapter Studio</small></div></div>
@@ -26,8 +37,10 @@ function App() {
         <div className="promise"><span>✓ Originals stay untouched</span><span>✓ Local processing</span><span>✓ Clean + watermarked export</span></div>
       </div> : <div className="shoot">
         <div className="shootHead"><div><p className="eyebrow">NEW SHOOT</p><h2>{shoot.folder.split(/[\\/]/).pop()}</h2><p>{shoot.folder}</p></div><div className="count"><strong>{shoot.files.length}</strong><span>photographs found</span></div></div>
-        <div className="fileGrid">{shoot.files.slice(0, 12).map((photo, i) => <article key={photo.path}><div className="placeholder"><span>{String(i + 1).padStart(2,"0")}</span></div><b>{photo.name}</b><small>{photo.type} · Ready for preview</small></article>)}</div>
-        <footer><span>{shoot.files.length ? "Ready to create previews without changing originals." : "No supported photographs found in this folder."}</span><button className="primary" disabled={!shoot.files.length}>Create shoot →</button></footer>
+        <div className="fileGrid">{(created?.previews || shoot.files.slice(0, 12)).map((photo, i) => <article key={photo.path}>{"preview" in photo ? <img src={photo.preview} alt={photo.name}/> : <div className="placeholder"><span>{String(i + 1).padStart(2,"0")}</span></div>}<b>{photo.name}</b><small>{photo.type} · {"preview" in photo ? "Preview ready" : "Ready for preview"}</small></article>)}</div>
+        {error && <div className="notice error"><b>Could not create previews</b><span>{error}</span></div>}
+        {created && <div className="notice success"><b>Shoot created</b><span>{created.previews.length} previews generated{created.failures.length ? ` · ${created.failures.length} could not be processed` : ""}. Originals were not changed.</span></div>}
+        <footer><span>{processing ? "Darktable is creating previews. Large RAW shoots can take a few minutes…" : created ? `Local project: ${created.projectDir}` : shoot.files.length ? "Ready to create previews without changing originals." : "No supported photographs found in this folder."}</span><button className="primary" onClick={createShoot} disabled={!shoot.files.length || processing || !!created}>{processing ? "Creating previews…" : created ? "Shoot created ✓" : "Create shoot →"}</button></footer>
       </div>}
     </section>
   </main>;

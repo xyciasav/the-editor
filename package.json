@@ -28,7 +28,7 @@
     "productName": "The Editor",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis", "artifactName": "The-Editor-Setup-${version}.${ext}" },
+    "win": { "target": "nsis", "artifactName": "The-Editor-Setup-${version}.${ext}", "signAndEditExecutable": false },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
   }
 }

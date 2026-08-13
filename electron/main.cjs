@@ -6,6 +6,15 @@ const path = require("path");
 const DARKTABLE = "C:\\Program Files\\darktable\\bin\\darktable-cli.exe";
 const PHOTO_EXTENSIONS = new Set([".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".raf", ".rw2", ".jpg", ".jpeg", ".png", ".tif", ".tiff"]);
 
+function runDarktable(args) {
+  return new Promise((resolve, reject) => {
+    execFile(DARKTABLE, args, { windowsHide: true, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) reject(new Error((stderr || stdout || error.message).trim()));
+      else resolve({ stdout, stderr });
+    });
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 1040, minHeight: 700,
@@ -32,6 +41,33 @@ ipcMain.handle("shoot:choose", async () => {
     .filter((entry) => entry.isFile() && PHOTO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
     .map((entry) => ({ name: entry.name, path: path.join(folder, entry.name), type: path.extname(entry.name).slice(1).toUpperCase() }));
   return { folder, files };
+});
+
+ipcMain.handle("shoot:create", async (_event, shoot) => {
+  if (!fs.existsSync(DARKTABLE)) throw new Error("Darktable CLI was not found.");
+  if (!shoot?.folder || !Array.isArray(shoot.files)) throw new Error("The selected shoot is invalid.");
+  const projectKey = Buffer.from(shoot.folder).toString("base64url").slice(0, 32);
+  const projectDir = path.join(app.getPath("userData"), "shoots", projectKey);
+  const previewDir = path.join(projectDir, "previews");
+  fs.mkdirSync(previewDir, { recursive: true });
+  const previews = [];
+  const failures = [];
+
+  for (const [index, photo] of shoot.files.slice(0, 40).entries()) {
+    const output = path.join(previewDir, `${String(index + 1).padStart(4, "0")}.jpg`);
+    try {
+      if (!fs.existsSync(output) || fs.statSync(output).mtimeMs < fs.statSync(photo.path).mtimeMs) {
+        await runDarktable([photo.path, output, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false"]);
+      }
+      const data = fs.readFileSync(output).toString("base64");
+      previews.push({ ...photo, preview: `data:image/jpeg;base64,${data}` });
+    } catch (error) {
+      failures.push({ name: photo.name, message: error.message });
+    }
+  }
+  const manifest = { sourceFolder: shoot.folder, createdAt: new Date().toISOString(), photoCount: shoot.files.length };
+  fs.writeFileSync(path.join(projectDir, "shoot.json"), JSON.stringify(manifest, null, 2));
+  return { projectDir, previews, failures, total: shoot.files.length };
 });
 
 app.whenReady().then(createWindow);
