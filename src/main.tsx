@@ -600,7 +600,7 @@ function App() {
       point.y - healStrokeRef.current.lastY,
     );
     if (distance < healRadius * 1.15) return;
-    if (healStrokeRef.current.operations.length >= 160) return;
+    if (healStrokeRef.current.operations.length >= 80) return;
     healStrokeRef.current.operations.push(point);
     healStrokeRef.current.lastX = point.x;
     healStrokeRef.current.lastY = point.y;
@@ -617,7 +617,7 @@ function App() {
   };
   const startLocalStroke = (event: React.PointerEvent<HTMLDivElement>) => {
     const point = pointFromHealEvent(event);
-    if (!point || !current || !localBrushMode) return false;
+    if (!point || !current || !localBrushMode || healing) return false;
     const operation = {
       ...point,
       amount: localBrushMode === "dodge" ? 0.055 : -0.055,
@@ -644,8 +644,8 @@ function App() {
       point.y - localStrokeRef.current.lastY,
     );
     if (
-      distance < healRadius * 1.15 ||
-      localStrokeRef.current.operations.length >= 160
+      distance < healRadius * 1.55 ||
+      localStrokeRef.current.operations.length >= 80
     )
       return;
     localStrokeRef.current.operations.push({

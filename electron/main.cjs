@@ -53,7 +53,7 @@ async function applyHealOperations(input, operations = []) {
   const width = metadata.width || 1,
     height = metadata.height || 1;
   const composites = [];
-  for (const operation of operations.slice(0, 160)) {
+  for (const operation of operations.slice(0, 80)) {
     const radius = Math.max(
       3,
       Math.round(operation.radius * Math.min(width, height)),
@@ -139,7 +139,7 @@ async function applyLocalAdjustments(input, operations = []) {
     .raw()
     .toBuffer({ resolveWithObject: true });
   const minimum = Math.min(info.width, info.height);
-  for (const operation of operations.slice(0, 160)) {
+  for (const operation of operations.slice(0, 80)) {
     const radius = Math.max(3, Math.round(operation.radius * minimum));
     const cx = Math.round(operation.x * info.width);
     const cy = Math.round(operation.y * info.height);
@@ -336,8 +336,8 @@ async function applyPortraitTone(input, strength = 0, operations) {
   }
 
   const coverage = subjectPixels / (info.width * info.height);
-  const coreMidtoneLift = [0, 0, 2, 4, 7][level];
-  const coreHighlightControl = [0, 0, 0.008, 0.018, 0.035][level];
+  const coreMidtoneLift = [0, 0, 2, 3, 4][level];
+  const coreHighlightControl = [0, 0, 0.008, 0.018, 0.04][level];
   for (let index = 0; index < data.length; index += info.channels) {
     const r = data[index],
       g = data[index + 1],
@@ -389,12 +389,17 @@ async function applyPortraitTone(input, strength = 0, operations) {
     const subjectMean = subjectLuminance / Math.max(1, subjectWeightTotal);
     const surroundMean = surroundLuminance / Math.max(1, surroundWeightTotal);
     const brightnessGap = surroundMean - subjectMean;
-    const adaptiveNeed = Math.max(
-      level === 4 ? 0.62 : 0.45,
-      Math.min(1.35, (brightnessGap + 24) / 68),
+    const sceneNeed = Math.max(
+      level === 4 ? 0.34 : 0.28,
+      Math.min(1.05, (brightnessGap + 18) / 72),
     );
-    const faceLift = (level === 3 ? 0.25 : 0.38) * adaptiveNeed;
-    const brightSuppression = (level === 3 ? 0.09 : 0.14) * adaptiveNeed;
+    const exposureHeadroom = Math.max(
+      0.18,
+      Math.min(1, (190 - subjectMean) / 78),
+    );
+    const adaptiveNeed = sceneNeed * exposureHeadroom;
+    const faceLift = (level === 3 ? 0.16 : 0.23) * adaptiveNeed;
+    const brightSuppression = (level === 3 ? 0.075 : 0.105) * sceneNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
       const subjectWeight = maskWeight(pixelIndex);
