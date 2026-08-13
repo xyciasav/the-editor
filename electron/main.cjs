@@ -232,6 +232,39 @@ async function analyzeBlemishes(input) {
   return selected;
 }
 
+async function applyPortraitTone(input, strength = 0) {
+  const level = Math.max(0, Math.min(4, Number(strength || 0)));
+  if (level < 2) return sharp(input).toBuffer();
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const amount = level === 2 ? 0.12 : level === 3 ? 0.22 : 0.38;
+  for (let index = 0; index < data.length; index += info.channels) {
+    const r = data[index],
+      g = data[index + 1],
+      b = data[index + 2];
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    const skin =
+      luminance > 55 &&
+      luminance < 235 &&
+      r > 75 &&
+      g > 35 &&
+      b > 20 &&
+      r > g * 1.04 &&
+      r > b * 1.08 &&
+      r - Math.min(g, b) > 10 &&
+      Math.max(r, g, b) - Math.min(r, g, b) < 145;
+    if (!skin) continue;
+    const excess = Math.max(0, r - (g * 1.18 + b * 0.18));
+    const correction = Math.min(18, excess * amount);
+    data[index] = Math.round(Math.max(0, r - correction));
+    data[index + 1] = Math.round(Math.min(255, g + correction * 0.18));
+    data[index + 2] = Math.round(Math.min(255, b + correction * 0.1));
+  }
+  return sharp(data, { raw: info }).png().toBuffer();
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -430,10 +463,11 @@ ipcMain.handle("retouch:save", async (_event, payload) => {
 ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
   const encoded = String(payload.preview || "").split(",")[1];
   if (!encoded) throw new Error("Preview image is unavailable.");
-  const healed = await applyHealOperations(
+  const toned = await applyPortraitTone(
     Buffer.from(encoded, "base64"),
-    payload.operations || [],
+    payload.strength || 0,
   );
+  const healed = await applyHealOperations(toned, payload.operations || []);
   return `data:image/jpeg;base64,${(await sharp(healed).jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
 });
 
@@ -441,6 +475,16 @@ ipcMain.handle("retouch:analyze-blemishes", async (_event, preview) => {
   const encoded = String(preview || "").split(",")[1];
   if (!encoded) throw new Error("Preview image is unavailable.");
   return analyzeBlemishes(Buffer.from(encoded, "base64"));
+});
+
+ipcMain.handle("retouch:render-level", async (_event, payload) => {
+  const encoded = String(payload.preview || "").split(",")[1];
+  if (!encoded) throw new Error("Preview image is unavailable.");
+  const toned = await applyPortraitTone(
+    Buffer.from(encoded, "base64"),
+    payload.strength,
+  );
+  return `data:image/jpeg;base64,${(await sharp(toned).jpeg({ quality: 91 }).toBuffer()).toString("base64")}`;
 });
 
 ipcMain.handle("watermark:choose", async () => {
@@ -527,8 +571,12 @@ ipcMain.handle("export:start", async (event, payload) => {
           `${result.stderr || result.stdout || "Darktable created no output."}`.trim(),
         );
       const masterPath = path.join(finalDir, `${base}.jpg`);
-      const healedBuffer = await applyHealOperations(
+      const tonedBuffer = await applyPortraitTone(
         developed,
+        payload.retouchStrength || 0,
+      );
+      const healedBuffer = await applyHealOperations(
+        tonedBuffer,
         payload.healOperations?.[photo.path] || [],
       );
       let master = sharp(healedBuffer);

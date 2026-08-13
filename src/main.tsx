@@ -62,8 +62,13 @@ declare global {
       healPreview(payload: {
         preview: string;
         operations: HealOperation[];
+        strength?: number;
       }): Promise<string>;
       analyzeBlemishes(preview: string): Promise<BlemishSuggestion[]>;
+      renderRetouchLevel(payload: {
+        preview: string;
+        strength: number;
+      }): Promise<string>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
       chooseExportFolder(): Promise<string | null>;
       startExport(payload: unknown): Promise<{
@@ -174,6 +179,9 @@ function App() {
   const [healedPreviews, setHealedPreviews] = useState<Record<string, string>>(
     {},
   );
+  const [levelPreviews, setLevelPreviews] = useState<Record<string, string>>(
+    {},
+  );
   const [healing, setHealing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [blemishSuggestions, setBlemishSuggestions] = useState<
@@ -209,6 +217,26 @@ function App() {
     return () => clearTimeout(timer);
   }, [progress]);
   useEffect(() => {
+    const selectedCurrent = created?.previews[selected];
+    if (!selectedCurrent || !window.editor || strength < 2) return;
+    const key = `${selectedCurrent.path}:${strength}`;
+    let cancelled = false;
+    const timer = setTimeout(
+      () =>
+        window.editor
+          ?.renderRetouchLevel({ preview: selectedCurrent.preview, strength })
+          .then((preview) => {
+            if (!cancelled)
+              setLevelPreviews((existing) => ({ ...existing, [key]: preview }));
+          }),
+      120,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [created, selected, strength]);
+  useEffect(() => {
     if (!shoot || created || !window.editor) return;
     let cancelled = false;
     const queue = [...shoot.files];
@@ -241,6 +269,7 @@ function App() {
       setCreativeSelection(new Set());
       setHealOperations({});
       setHealedPreviews({});
+      setLevelPreviews({});
       setBlemishSuggestions({});
       setError("");
       setStage("shoots");
@@ -310,6 +339,7 @@ function App() {
         tiledWatermark,
         creativeEdits,
         healOperations,
+        retouchStrength: strength,
       });
       setExportResult(
         `${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
@@ -373,7 +403,7 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations })
+      ?.healPreview({ preview: current.preview, operations, strength })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -425,7 +455,7 @@ function App() {
     }
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations })
+      ?.healPreview({ preview: current.preview, operations, strength })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -468,7 +498,7 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations })
+      ?.healPreview({ preview: current.preview, operations, strength })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -499,7 +529,7 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations })
+      ?.healPreview({ preview: current.preview, operations, strength })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -1167,6 +1197,9 @@ function App() {
                             src={
                               compare === "Retouched"
                                 ? healedPreviews[current.path] ||
+                                  levelPreviews[
+                                    `${current.path}:${strength}`
+                                  ] ||
                                   current.preview
                                 : current.preview
                             }
