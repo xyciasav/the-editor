@@ -132,6 +132,41 @@ async function applyHealOperations(input, operations = []) {
   return sharp(base).composite(composites).png().toBuffer();
 }
 
+async function applyLocalAdjustments(input, operations = []) {
+  if (!operations.length) return sharp(input).toBuffer();
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const minimum = Math.min(info.width, info.height);
+  for (const operation of operations.slice(0, 160)) {
+    const radius = Math.max(3, Math.round(operation.radius * minimum));
+    const cx = Math.round(operation.x * info.width);
+    const cy = Math.round(operation.y * info.height);
+    const amount = Math.max(
+      -0.12,
+      Math.min(0.12, Number(operation.amount) || 0),
+    );
+    const left = Math.max(0, cx - radius),
+      right = Math.min(info.width - 1, cx + radius),
+      top = Math.max(0, cy - radius),
+      bottom = Math.min(info.height - 1, cy + radius);
+    for (let y = top; y <= bottom; y++)
+      for (let x = left; x <= right; x++) {
+        const distance = Math.hypot(x - cx, y - cy) / radius;
+        if (distance >= 1) continue;
+        const feather = distance <= 0.55 ? 1 : (1 - distance) / 0.45;
+        const scale = 1 + amount * feather;
+        const index = (y * info.width + x) * info.channels;
+        for (let channel = 0; channel < 3; channel++)
+          data[index + channel] = Math.round(
+            Math.max(0, Math.min(255, data[index + channel] * scale)),
+          );
+      }
+  }
+  return sharp(data, { raw: info }).png().toBuffer();
+}
+
 async function analyzeBlemishes(input) {
   const { data, info } = await sharp(input)
     .resize({
@@ -283,9 +318,7 @@ async function applyPortraitTone(input, strength = 0) {
       const pixelIndex = index / info.channels;
       const subjectWeight = featheredMask[pixelIndex] / 255;
       const luminance =
-        0.299 * data[index] +
-        0.587 * data[index + 1] +
-        0.114 * data[index + 2];
+        0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
       subjectLuminance += luminance * subjectWeight;
       subjectWeightTotal += subjectWeight;
       const visualWeight =
@@ -301,8 +334,7 @@ async function applyPortraitTone(input, strength = 0) {
       Math.min(1.2, (brightnessGap + 15) / 75),
     );
     const faceLift = (level === 3 ? 0.2 : 0.28) * adaptiveNeed;
-    const brightSuppression =
-      (level === 3 ? 0.07 : 0.105) * adaptiveNeed;
+    const brightSuppression = (level === 3 ? 0.07 : 0.105) * adaptiveNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
       const subjectWeight = featheredMask[pixelIndex] / 255;
@@ -524,6 +556,7 @@ ipcMain.handle("retouch:save", async (_event, payload) => {
     strength: payload.strength,
     operations: payload.operations,
     healOperations: payload.healOperations || {},
+    localAdjustments: payload.localAdjustments || {},
   };
   fs.writeFileSync(retouchFile, JSON.stringify(plan, null, 2));
   return { path: retouchFile, updatedAt: plan.updatedAt };
@@ -536,7 +569,11 @@ ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
     Buffer.from(encoded, "base64"),
     payload.strength || 0,
   );
-  const healed = await applyHealOperations(toned, payload.operations || []);
+  const adjusted = await applyLocalAdjustments(
+    toned,
+    payload.localAdjustments || [],
+  );
+  const healed = await applyHealOperations(adjusted, payload.operations || []);
   return `data:image/jpeg;base64,${(await sharp(healed).jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
 });
 
@@ -592,16 +629,20 @@ ipcMain.handle("watermark:choose", async () => {
   if (result.canceled) return null;
   const sourcePath = result.filePaths[0];
   const extension = path.extname(sourcePath).toLowerCase();
-  const safeName = path
-    .basename(sourcePath, extension)
-    .replace(/[^a-z0-9_-]+/gi, "-")
-    .replace(/^-+|-+$/g, "") || "watermark";
+  const safeName =
+    path
+      .basename(sourcePath, extension)
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "watermark";
   const hash = crypto
     .createHash("sha256")
     .update(fs.readFileSync(sourcePath))
     .digest("hex")
     .slice(0, 8);
-  const savedPath = path.join(watermarkLibrary(), `${safeName}-${hash}${extension}`);
+  const savedPath = path.join(
+    watermarkLibrary(),
+    `${safeName}-${hash}${extension}`,
+  );
   if (!fs.existsSync(savedPath)) fs.copyFileSync(sourcePath, savedPath);
   return savedWatermarks().find((item) => item.path === savedPath);
 });
@@ -678,8 +719,12 @@ ipcMain.handle("export:start", async (event, payload) => {
         developed,
         payload.retouchStrength || 0,
       );
-      const healedBuffer = await applyHealOperations(
+      const adjustedBuffer = await applyLocalAdjustments(
         tonedBuffer,
+        payload.localAdjustments?.[photo.path] || [],
+      );
+      const healedBuffer = await applyHealOperations(
+        adjustedBuffer,
         payload.healOperations?.[photo.path] || [],
       );
       let master = sharp(healedBuffer);

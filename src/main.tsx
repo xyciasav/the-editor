@@ -43,6 +43,7 @@ type Progress = {
   message: string;
 };
 type HealOperation = { x: number; y: number; radius: number };
+type LocalAdjustment = HealOperation & { amount: number };
 type BlemishSuggestion = HealOperation & {
   confidence: number;
   score: number;
@@ -63,6 +64,7 @@ declare global {
       healPreview(payload: {
         preview: string;
         operations: HealOperation[];
+        localAdjustments?: LocalAdjustment[];
         strength?: number;
       }): Promise<string>;
       analyzeBlemishes(preview: string): Promise<BlemishSuggestion[]>;
@@ -159,7 +161,9 @@ function App() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [watermark, setWatermark] = useState("");
   const [watermarkPreview, setWatermarkPreview] = useState("");
-  const [watermarkLibrary, setWatermarkLibrary] = useState<SavedWatermark[]>([]);
+  const [watermarkLibrary, setWatermarkLibrary] = useState<SavedWatermark[]>(
+    [],
+  );
   const [outputFolder, setOutputFolder] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState("");
@@ -178,9 +182,15 @@ function App() {
   );
   const [copiedEdit, setCopiedEdit] = useState<CreativeEdit | null>(null);
   const [healMode, setHealMode] = useState(false);
+  const [localBrushMode, setLocalBrushMode] = useState<"dodge" | "burn" | null>(
+    null,
+  );
   const [healRadius, setHealRadius] = useState(0.018);
   const [healOperations, setHealOperations] = useState<
     Record<string, HealOperation[]>
+  >({});
+  const [localAdjustments, setLocalAdjustments] = useState<
+    Record<string, LocalAdjustment[]>
   >({});
   const [healedPreviews, setHealedPreviews] = useState<Record<string, string>>(
     {},
@@ -200,6 +210,11 @@ function App() {
   } | null>(null);
   const healStrokeRef = useRef<{
     operations: HealOperation[];
+    lastX: number;
+    lastY: number;
+  } | null>(null);
+  const localStrokeRef = useRef<{
+    operations: LocalAdjustment[];
     lastX: number;
     lastY: number;
   } | null>(null);
@@ -280,6 +295,7 @@ function App() {
       setCreativeEdits({});
       setCreativeSelection(new Set());
       setHealOperations({});
+      setLocalAdjustments({});
       setHealedPreviews({});
       setLevelPreviews({});
       setBlemishSuggestions({});
@@ -321,6 +337,7 @@ function App() {
       strength,
       operations,
       healOperations,
+      localAdjustments,
     });
     setSaved(`Saved locally · ${result.path}`);
   };
@@ -354,7 +371,9 @@ function App() {
       existing
         ? {
             ...existing,
-            files: existing.files.filter((photo) => photo.path !== current.path),
+            files: existing.files.filter(
+              (photo) => photo.path !== current.path,
+            ),
           }
         : existing,
     );
@@ -386,6 +405,7 @@ function App() {
         tiledWatermark,
         creativeEdits,
         healOperations,
+        localAdjustments,
         retouchStrength: strength,
       });
       setExportResult(
@@ -429,7 +449,8 @@ function App() {
     dragRef.current = null;
   };
   const pointFromHealEvent = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!healMode || !current || !healImageRef.current) return false;
+    if ((!healMode && !localBrushMode) || !current || !healImageRef.current)
+      return false;
     const rect = healImageRef.current.getBoundingClientRect();
     if (
       event.clientX < rect.left ||
@@ -453,7 +474,12 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations, strength })
+      ?.healPreview({
+        preview: current.preview,
+        operations,
+        localAdjustments: localAdjustments[current.path] || [],
+        strength,
+      })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -507,8 +533,104 @@ function App() {
     healStrokeRef.current = null;
     renderHeals(operations);
   };
+  const startLocalStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    const point = pointFromHealEvent(event);
+    if (!point || !current || !localBrushMode) return false;
+    const operation = {
+      ...point,
+      amount: localBrushMode === "dodge" ? 0.055 : -0.055,
+    };
+    const operations = [...(localAdjustments[current.path] || []), operation];
+    localStrokeRef.current = {
+      operations,
+      lastX: point.x,
+      lastY: point.y,
+    };
+    photoViewRef.current?.setPointerCapture(event.pointerId);
+    setLocalAdjustments((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
+    return true;
+  };
+  const continueLocalStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!localStrokeRef.current || !current || !localBrushMode) return;
+    const point = pointFromHealEvent(event);
+    if (!point) return;
+    const distance = Math.hypot(
+      point.x - localStrokeRef.current.lastX,
+      point.y - localStrokeRef.current.lastY,
+    );
+    if (
+      distance < healRadius * 1.15 ||
+      localStrokeRef.current.operations.length >= 160
+    )
+      return;
+    localStrokeRef.current.operations.push({
+      ...point,
+      amount: localBrushMode === "dodge" ? 0.055 : -0.055,
+    });
+    localStrokeRef.current.lastX = point.x;
+    localStrokeRef.current.lastY = point.y;
+    setLocalAdjustments((existing) => ({
+      ...existing,
+      [current.path]: [...localStrokeRef.current!.operations],
+    }));
+  };
+  const endLocalStroke = () => {
+    if (!localStrokeRef.current || !current) return;
+    const adjustments = [...localStrokeRef.current.operations];
+    localStrokeRef.current = null;
+    setHealing(true);
+    window.editor
+      ?.healPreview({
+        preview: current.preview,
+        operations: healOperations[current.path] || [],
+        localAdjustments: adjustments,
+        strength,
+      })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .catch((brushError) =>
+        setError(
+          `Local brush failed: ${brushError instanceof Error ? brushError.message : String(brushError)}`,
+        ),
+      )
+      .finally(() => setHealing(false));
+  };
+  const undoLocalAdjustment = () => {
+    if (!current) return;
+    const adjustments = (localAdjustments[current.path] || []).slice(0, -1);
+    setLocalAdjustments((existing) => ({
+      ...existing,
+      [current.path]: adjustments,
+    }));
+    setHealing(true);
+    window.editor
+      ?.healPreview({
+        preview: current.preview,
+        operations: healOperations[current.path] || [],
+        localAdjustments: adjustments,
+        strength,
+      })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .finally(() => setHealing(false));
+  };
   const trackBrush = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!healMode || !healImageRef.current || !photoViewRef.current) {
+    if (
+      (!healMode && !localBrushMode) ||
+      !healImageRef.current ||
+      !photoViewRef.current
+    ) {
       setBrushCursor(null);
       return;
     }
@@ -549,7 +671,12 @@ function App() {
     }
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations, strength })
+      ?.healPreview({
+        preview: current.preview,
+        operations,
+        localAdjustments: localAdjustments[current.path] || [],
+        strength,
+      })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -592,7 +719,12 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations, strength })
+      ?.healPreview({
+        preview: current.preview,
+        operations,
+        localAdjustments: localAdjustments[current.path] || [],
+        strength,
+      })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -623,7 +755,12 @@ function App() {
     }));
     setHealing(true);
     window.editor
-      ?.healPreview({ preview: current.preview, operations, strength })
+      ?.healPreview({
+        preview: current.preview,
+        operations,
+        localAdjustments: localAdjustments[current.path] || [],
+        strength,
+      })
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
@@ -1180,11 +1317,38 @@ function App() {
                     className={healMode ? "selected healActive" : ""}
                     onClick={() => {
                       setHealMode((value) => !value);
+                      setLocalBrushMode(null);
                       setSplitView(false);
                       setCompare("Retouched");
                     }}
                   >
                     Heal brush
+                  </button>
+                  <button
+                    className={localBrushMode === "dodge" ? "selected" : ""}
+                    onClick={() => {
+                      setLocalBrushMode((value) =>
+                        value === "dodge" ? null : "dodge",
+                      );
+                      setHealMode(false);
+                      setSplitView(false);
+                      setCompare("Retouched");
+                    }}
+                  >
+                    Dodge
+                  </button>
+                  <button
+                    className={localBrushMode === "burn" ? "selected" : ""}
+                    onClick={() => {
+                      setLocalBrushMode((value) =>
+                        value === "burn" ? null : "burn",
+                      );
+                      setHealMode(false);
+                      setSplitView(false);
+                      setCompare("Retouched");
+                    }}
+                  >
+                    Burn
                   </button>
                   <button
                     onClick={() => setZoom(0)}
@@ -1209,6 +1373,14 @@ function App() {
                     onClick={undoHeal}
                   >
                     Undo heal
+                  </button>
+                  <button
+                    disabled={
+                      !current || !localAdjustments[current.path]?.length
+                    }
+                    onClick={undoLocalAdjustment}
+                  >
+                    Undo dodge/burn
                   </button>
                   <button
                     onClick={analyzeCurrent}
@@ -1271,23 +1443,31 @@ function App() {
                     <div
                       ref={photoViewRef}
                       onPointerDown={(event) => {
-                        if (!startHealStroke(event)) startPan(event);
+                        const started = healMode
+                          ? startHealStroke(event)
+                          : localBrushMode
+                            ? startLocalStroke(event)
+                            : false;
+                        if (!started) startPan(event);
                       }}
                       onPointerMove={(event) => {
                         trackBrush(event);
                         if (healMode) continueHealStroke(event);
+                        else if (localBrushMode) continueLocalStroke(event);
                         else movePan(event);
                       }}
                       onPointerUp={() => {
                         endHealStroke();
+                        endLocalStroke();
                         stopPan();
                       }}
                       onPointerCancel={() => {
                         endHealStroke();
+                        endLocalStroke();
                         stopPan();
                       }}
                       onPointerLeave={() => setBrushCursor(null)}
-                      className={`photoView ${zoom && !healMode ? "zoomed pannable" : zoom ? "zoomed healCanvas" : healMode ? "healCanvas" : ""}`}
+                      className={`photoView ${zoom && !healMode && !localBrushMode ? "zoomed pannable" : zoom ? "zoomed healCanvas" : healMode || localBrushMode ? "healCanvas" : ""}`}
                     >
                       {splitView ? (
                         <div className="splitPreview">
@@ -1363,11 +1543,11 @@ function App() {
                       {compare === "Retouched" && !splitView && (
                         <span className="previewBadge">
                           {healing
-                            ? "Healing…"
-                            : `${healOperations[current.path]?.length || 0} healed spot${(healOperations[current.path]?.length || 0) === 1 ? "" : "s"}`}
+                            ? "Rendering local work…"
+                            : `${healOperations[current.path]?.length || 0} healed · ${localAdjustments[current.path]?.length || 0} dodge/burn marks`}
                         </span>
                       )}
-                      {healMode && brushCursor && (
+                      {(healMode || localBrushMode) && brushCursor && (
                         <span
                           className="healCursor"
                           style={{
@@ -1379,6 +1559,7 @@ function App() {
                         />
                       )}
                       {!healMode &&
+                        !localBrushMode &&
                         (blemishSuggestions[current.path] || []).length > 0 && (
                           <div className="suggestionLegend">
                             {blemishSuggestions[current.path].length}{" "}
@@ -1423,12 +1604,13 @@ function App() {
                 <div className="retouchEngineStatus ready">
                   <b>Manual blemish healing available</b>
                   <span>
-                    Choose Heal brush above, adjust its size, then click
-                    or drag across temporary blemishes. Levels 3 and 4 now use
-                    a feathered subject mask and measure the brightness gap
-                    before lifting facial midtones or suppressing competing
-                    highlights. Eye-specific enhancement, flyaways, and
-                    under-eye localization remain pending.
+                    Choose Heal brush above, adjust its size, then click or drag
+                    across temporary blemishes. Dodge gently lifts an area; Burn
+                    reduces distracting brightness. Levels 3 and 4 use a
+                    feathered subject mask and measure the brightness gap before
+                    lifting facial midtones or suppressing competing highlights.
+                    Eye-specific enhancement, flyaways, and under-eye
+                    localization remain pending.
                   </span>
                 </div>
                 <div className="operationHead">
