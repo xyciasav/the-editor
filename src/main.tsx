@@ -66,11 +66,13 @@ declare global {
         operations: HealOperation[];
         localAdjustments?: LocalAdjustment[];
         strength?: number;
+        retouchOperations?: Operation[];
       }): Promise<string>;
       analyzeBlemishes(preview: string): Promise<BlemishSuggestion[]>;
       renderRetouchLevel(payload: {
         preview: string;
         strength: number;
+        retouchOperations?: Operation[];
       }): Promise<string>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
       listWatermarks(): Promise<SavedWatermark[]>;
@@ -251,7 +253,11 @@ function App() {
     const timer = setTimeout(
       () =>
         window.editor
-          ?.renderRetouchLevel({ preview: selectedCurrent.preview, strength })
+          ?.renderRetouchLevel({
+            preview: selectedCurrent.preview,
+            strength,
+            retouchOperations: operations,
+          })
           .then((preview) => {
             if (!cancelled)
               setLevelPreviews((existing) => ({ ...existing, [key]: preview }));
@@ -262,7 +268,7 @@ function App() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [created, selected, strength]);
+  }, [created, selected, strength, operations]);
   useEffect(() => {
     if (!shoot || created || !window.editor) return;
     let cancelled = false;
@@ -322,7 +328,7 @@ function App() {
       setProcessing(false);
     }
   };
-  const toggleOperation = (id: string) =>
+  const toggleOperation = (id: string) => {
     setOperations((items) =>
       items.map((item) =>
         item.id === id && item.action !== "Preserve"
@@ -330,6 +336,8 @@ function App() {
           : item,
       ),
     );
+    if (id === "tone") setHealedPreviews({});
+  };
   const savePlan = async () => {
     if (!created || !window.editor) return;
     const result = await window.editor.saveRetouchPlan({
@@ -479,6 +487,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -588,6 +597,7 @@ function App() {
         operations: healOperations[current.path] || [],
         localAdjustments: adjustments,
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -616,6 +626,7 @@ function App() {
         operations: healOperations[current.path] || [],
         localAdjustments: adjustments,
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -676,6 +687,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -724,6 +736,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -760,6 +773,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
+        retouchOperations: operations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -1623,9 +1637,13 @@ function App() {
                   {operations.map((op) => (
                     <button
                       key={op.id}
-                      className={`operation pending ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
+                      className={`operation ${op.id === "tone" ? "engineActive" : "pending"} ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
                       onClick={() => toggleOperation(op.id)}
-                      title="Saved as intent only; the pixel retouch engine is not connected"
+                      title={
+                        op.id === "tone"
+                          ? "This control changes the live preview and final export"
+                          : "Saved as intent; this engine component is not connected yet"
+                      }
                     >
                       <span className="check">
                         {op.action === "Preserve" ? "◆" : op.enabled ? "✓" : ""}
@@ -1635,7 +1653,13 @@ function App() {
                         <small>{op.detail}</small>
                       </span>
                       <em>{op.action}</em>
-                      <strong className="pendingBadge">Engine pending</strong>
+                      <strong className="pendingBadge">
+                        {op.id === "tone"
+                          ? op.enabled
+                            ? "Engine active"
+                            : "Engine off"
+                          : "Engine pending"}
+                      </strong>
                     </button>
                   ))}
                 </div>

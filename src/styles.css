@@ -1217,6 +1217,12 @@ aside {
   text-transform: uppercase;
   letter-spacing: 0.7px;
 }
+.operation.engineActive .pendingBadge {
+  color: #8fbc87;
+}
+.operation.engineActive.on {
+  border-color: #557051;
+}
 .creativeCanvas img {
   width: 100%;
   height: 100%;

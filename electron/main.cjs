@@ -267,7 +267,13 @@ async function analyzeBlemishes(input) {
   return selected;
 }
 
-async function applyPortraitTone(input, strength = 0) {
+function operationEnabled(operations, id, defaultValue = true) {
+  if (!Array.isArray(operations)) return defaultValue;
+  const operation = operations.find((item) => item?.id === id);
+  return operation ? operation.enabled !== false : defaultValue;
+}
+
+async function applyPortraitTone(input, strength = 0, operations) {
   const level = Math.max(0, Math.min(4, Number(strength || 0)));
   if (level < 2) return sharp(input).toBuffer();
   const { data, info } = await sharp(input)
@@ -295,6 +301,7 @@ async function applyPortraitTone(input, strength = 0) {
     if (!skin) continue;
     subjectMask[index / info.channels] = 255;
     subjectPixels++;
+    if (!operationEnabled(operations, "tone")) continue;
     const excess = Math.max(0, r - (g * 1.18 + b * 0.18));
     const correction = Math.min(18, excess * amount);
     data[index] = Math.round(Math.max(0, r - correction));
@@ -568,6 +575,7 @@ ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
   const toned = await applyPortraitTone(
     Buffer.from(encoded, "base64"),
     payload.strength || 0,
+    payload.retouchOperations,
   );
   const adjusted = await applyLocalAdjustments(
     toned,
@@ -589,6 +597,7 @@ ipcMain.handle("retouch:render-level", async (_event, payload) => {
   const toned = await applyPortraitTone(
     Buffer.from(encoded, "base64"),
     payload.strength,
+    payload.retouchOperations,
   );
   return `data:image/jpeg;base64,${(await sharp(toned).jpeg({ quality: 91 }).toBuffer()).toString("base64")}`;
 });
@@ -718,6 +727,7 @@ ipcMain.handle("export:start", async (event, payload) => {
       const tonedBuffer = await applyPortraitTone(
         developed,
         payload.retouchStrength || 0,
+        payload.operations,
       );
       const adjustedBuffer = await applyLocalAdjustments(
         tonedBuffer,
