@@ -310,6 +310,26 @@ async function applyPortraitTone(input, strength = 0, operations) {
   }
 
   const coverage = subjectPixels / (info.width * info.height);
+  const coreMidtoneLift = level === 2 ? 2 : level === 3 ? 4 : 7;
+  const coreHighlightControl =
+    level === 2 ? 0.008 : level === 3 ? 0.018 : 0.035;
+  for (let index = 0; index < data.length; index += info.channels) {
+    const r = data[index],
+      g = data[index + 1],
+      b = data[index + 2];
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    const midtoneWeight = Math.sin((Math.PI * luminance) / 255);
+    const highlightWeight = Math.pow(Math.max(0, (luminance - 170) / 85), 1.4);
+    const offset = coreMidtoneLift * midtoneWeight;
+    const scale = 1 - coreHighlightControl * highlightWeight;
+    data[index] = Math.round(Math.max(0, Math.min(255, (r + offset) * scale)));
+    data[index + 1] = Math.round(
+      Math.max(0, Math.min(255, (g + offset) * scale)),
+    );
+    data[index + 2] = Math.round(
+      Math.max(0, Math.min(255, (b + offset) * scale)),
+    );
+  }
   if (level >= 3 && coverage > 0.004 && coverage < 0.48) {
     const featheredMask = await sharp(subjectMask, {
       raw: { width: info.width, height: info.height, channels: 1 },
@@ -337,11 +357,11 @@ async function applyPortraitTone(input, strength = 0, operations) {
     const surroundMean = surroundLuminance / Math.max(1, surroundWeightTotal);
     const brightnessGap = surroundMean - subjectMean;
     const adaptiveNeed = Math.max(
-      0.25,
-      Math.min(1.2, (brightnessGap + 15) / 75),
+      level === 4 ? 0.62 : 0.45,
+      Math.min(1.35, (brightnessGap + 24) / 68),
     );
-    const faceLift = (level === 3 ? 0.2 : 0.28) * adaptiveNeed;
-    const brightSuppression = (level === 3 ? 0.07 : 0.105) * adaptiveNeed;
+    const faceLift = (level === 3 ? 0.25 : 0.38) * adaptiveNeed;
+    const brightSuppression = (level === 3 ? 0.09 : 0.14) * adaptiveNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
       const subjectWeight = featheredMask[pixelIndex] / 255;
