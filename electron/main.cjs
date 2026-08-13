@@ -122,7 +122,8 @@ async function applyHealOperations(input, operations = []) {
       `<svg width="${size}" height="${size}"><defs><radialGradient id="m"><stop offset="62%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><circle cx="${radius}" cy="${radius}" r="${radius}" fill="url(#m)"/></svg>`,
     );
     const healedPatch = await sharp(patch)
-      .joinChannel(await sharp(mask).extractChannel("alpha").toBuffer())
+      .ensureAlpha()
+      .composite([{ input: mask, blend: "dest-in" }])
       .png()
       .toBuffer();
     image = sharp(base).composite([

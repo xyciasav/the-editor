@@ -195,6 +195,11 @@ function App() {
     y: number;
     size: number;
   } | null>(null);
+  const healStrokeRef = useRef<{
+    operations: HealOperation[];
+    lastX: number;
+    lastY: number;
+  } | null>(null);
   const photoViewRef = useRef<HTMLDivElement>(null);
   const healImageRef = useRef<HTMLImageElement>(null);
   const cropViewRef = useRef<HTMLDivElement>(null);
@@ -384,7 +389,7 @@ function App() {
   const stopPan = () => {
     dragRef.current = null;
   };
-  const addHeal = (event: React.PointerEvent<HTMLDivElement>) => {
+  const pointFromHealEvent = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!healMode || !current || !healImageRef.current) return false;
     const rect = healImageRef.current.getBoundingClientRect();
     if (
@@ -393,13 +398,15 @@ function App() {
       event.clientY < rect.top ||
       event.clientY > rect.bottom
     )
-      return true;
-    const operation = {
+      return false;
+    return {
       x: (event.clientX - rect.left) / rect.width,
       y: (event.clientY - rect.top) / rect.height,
       radius: healRadius,
     };
-    const operations = [...(healOperations[current.path] || []), operation];
+  };
+  const renderHeals = (operations: HealOperation[]) => {
+    if (!current) return;
     setHealOperations((existing) => ({
       ...existing,
       [current.path]: operations,
@@ -414,7 +421,45 @@ function App() {
         })),
       )
       .finally(() => setHealing(false));
+  };
+  const startHealStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    const point = pointFromHealEvent(event);
+    if (!point || !current) return false;
+    const operations = [...(healOperations[current.path] || []), point];
+    healStrokeRef.current = {
+      operations,
+      lastX: point.x,
+      lastY: point.y,
+    };
+    photoViewRef.current?.setPointerCapture(event.pointerId);
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
     return true;
+  };
+  const continueHealStroke = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!healStrokeRef.current || !current) return;
+    const point = pointFromHealEvent(event);
+    if (!point) return;
+    const distance = Math.hypot(
+      point.x - healStrokeRef.current.lastX,
+      point.y - healStrokeRef.current.lastY,
+    );
+    if (distance < healRadius * 0.85) return;
+    healStrokeRef.current.operations.push(point);
+    healStrokeRef.current.lastX = point.x;
+    healStrokeRef.current.lastY = point.y;
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: [...healStrokeRef.current!.operations],
+    }));
+  };
+  const endHealStroke = () => {
+    if (!healStrokeRef.current) return;
+    const operations = [...healStrokeRef.current.operations];
+    healStrokeRef.current = null;
+    renderHeals(operations);
   };
   const trackBrush = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!healMode || !healImageRef.current || !photoViewRef.current) {
@@ -1152,14 +1197,21 @@ function App() {
                     <div
                       ref={photoViewRef}
                       onPointerDown={(event) => {
-                        if (!addHeal(event)) startPan(event);
+                        if (!startHealStroke(event)) startPan(event);
                       }}
                       onPointerMove={(event) => {
                         trackBrush(event);
-                        if (!healMode) movePan(event);
+                        if (healMode) continueHealStroke(event);
+                        else movePan(event);
                       }}
-                      onPointerUp={stopPan}
-                      onPointerCancel={stopPan}
+                      onPointerUp={() => {
+                        endHealStroke();
+                        stopPan();
+                      }}
+                      onPointerCancel={() => {
+                        endHealStroke();
+                        stopPan();
+                      }}
                       onPointerLeave={() => setBrushCursor(null)}
                       className={`photoView ${zoom && !healMode ? "zoomed pannable" : zoom ? "zoomed healCanvas" : healMode ? "healCanvas" : ""}`}
                     >
@@ -1198,11 +1250,7 @@ function App() {
                             style={{
                               ...(zoom ? { width: `${zoom}%` } : {}),
                               filter:
-                                compare === "Original"
-                                  ? "none"
-                                  : compare === "Edited"
-                                    ? editedFilter
-                                    : retouchFilter,
+                                compare === "Edited" ? editedFilter : "none",
                             }}
                             src={
                               compare === "Retouched"
