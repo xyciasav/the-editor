@@ -275,8 +275,34 @@ async function applyPortraitTone(input, strength = 0) {
       .blur(Math.max(3, Math.min(info.width, info.height) / 85))
       .raw()
       .toBuffer();
-    const faceLift = level === 3 ? 0.21 : 0.29;
-    const brightSuppression = level === 3 ? 0.075 : 0.11;
+    let subjectLuminance = 0,
+      subjectWeightTotal = 0,
+      surroundLuminance = 0,
+      surroundWeightTotal = 0;
+    for (let index = 0; index < data.length; index += info.channels) {
+      const pixelIndex = index / info.channels;
+      const subjectWeight = featheredMask[pixelIndex] / 255;
+      const luminance =
+        0.299 * data[index] +
+        0.587 * data[index + 1] +
+        0.114 * data[index + 2];
+      subjectLuminance += luminance * subjectWeight;
+      subjectWeightTotal += subjectWeight;
+      const visualWeight =
+        (1 - subjectWeight) * (0.2 + 0.8 * Math.pow(luminance / 255, 1.5));
+      surroundLuminance += luminance * visualWeight;
+      surroundWeightTotal += visualWeight;
+    }
+    const subjectMean = subjectLuminance / Math.max(1, subjectWeightTotal);
+    const surroundMean = surroundLuminance / Math.max(1, surroundWeightTotal);
+    const brightnessGap = surroundMean - subjectMean;
+    const adaptiveNeed = Math.max(
+      0.25,
+      Math.min(1.2, (brightnessGap + 15) / 75),
+    );
+    const faceLift = (level === 3 ? 0.2 : 0.28) * adaptiveNeed;
+    const brightSuppression =
+      (level === 3 ? 0.07 : 0.105) * adaptiveNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
       const subjectWeight = featheredMask[pixelIndex] / 255;

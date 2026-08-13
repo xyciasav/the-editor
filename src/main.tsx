@@ -1425,9 +1425,10 @@ function App() {
                   <span>
                     Choose Heal brush above, adjust its size, then click
                     or drag across temporary blemishes. Levels 3 and 4 now use
-                    a feathered subject mask to lift facial midtones and gently
-                    suppress competing bright areas. Eye-specific enhancement,
-                    flyaways, and under-eye localization remain pending.
+                    a feathered subject mask and measure the brightness gap
+                    before lifting facial midtones or suppressing competing
+                    highlights. Eye-specific enhancement, flyaways, and
+                    under-eye localization remain pending.
                   </span>
                 </div>
                 <div className="operationHead">
