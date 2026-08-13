@@ -43,6 +43,7 @@ type Progress = {
   message: string;
 };
 type HealOperation = { x: number; y: number; radius: number };
+type BlemishSuggestion = HealOperation & { confidence: number; score: number };
 declare global {
   interface Window {
     editor?: {
@@ -58,6 +59,7 @@ declare global {
         preview: string;
         operations: HealOperation[];
       }): Promise<string>;
+      analyzeBlemishes(preview: string): Promise<BlemishSuggestion[]>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
       chooseExportFolder(): Promise<string | null>;
       startExport(payload: unknown): Promise<{
@@ -169,6 +171,10 @@ function App() {
     {},
   );
   const [healing, setHealing] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [blemishSuggestions, setBlemishSuggestions] = useState<
+    Record<string, BlemishSuggestion[]>
+  >({});
   const [brushCursor, setBrushCursor] = useState<{
     x: number;
     y: number;
@@ -231,6 +237,7 @@ function App() {
       setCreativeSelection(new Set());
       setHealOperations({});
       setHealedPreviews({});
+      setBlemishSuggestions({});
       setError("");
       setStage("shoots");
     }
@@ -412,6 +419,80 @@ function App() {
       });
       return;
     }
+    setHealing(true);
+    window.editor
+      ?.healPreview({ preview: current.preview, operations })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .finally(() => setHealing(false));
+  };
+  const analyzeCurrent = async () => {
+    if (!current || !window.editor) return;
+    setAnalyzing(true);
+    setHealMode(false);
+    setCompare("Retouched");
+    setSplitView(false);
+    try {
+      const suggestions = await window.editor.analyzeBlemishes(current.preview);
+      setBlemishSuggestions((existing) => ({
+        ...existing,
+        [current.path]: suggestions,
+      }));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+  const applySuggestion = (suggestion: BlemishSuggestion) => {
+    if (!current) return;
+    const operations = [
+      ...(healOperations[current.path] || []),
+      { x: suggestion.x, y: suggestion.y, radius: suggestion.radius },
+    ];
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
+    setBlemishSuggestions((existing) => ({
+      ...existing,
+      [current.path]: (existing[current.path] || []).filter(
+        (item) => item !== suggestion,
+      ),
+    }));
+    setHealing(true);
+    window.editor
+      ?.healPreview({ preview: current.preview, operations })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .finally(() => setHealing(false));
+  };
+  const acceptHighConfidence = () => {
+    if (!current) return;
+    const accepted = (blemishSuggestions[current.path] || []).filter(
+      (item) => item.confidence >= 82,
+    );
+    if (!accepted.length) return;
+    const operations = [
+      ...(healOperations[current.path] || []),
+      ...accepted.map(({ x, y, radius }) => ({ x, y, radius })),
+    ];
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
+    setBlemishSuggestions((existing) => ({
+      ...existing,
+      [current.path]: (existing[current.path] || []).filter(
+        (item) => item.confidence < 82,
+      ),
+    }));
     setHealing(true);
     window.editor
       ?.healPreview({ preview: current.preview, operations })
@@ -974,6 +1055,23 @@ function App() {
                     Undo heal
                   </button>
                   <button
+                    onClick={analyzeCurrent}
+                    disabled={!current || analyzing}
+                  >
+                    {analyzing ? "Analyzing…" : "Find blemishes"}
+                  </button>
+                  <button
+                    onClick={acceptHighConfidence}
+                    disabled={
+                      !current ||
+                      !(blemishSuggestions[current.path] || []).some(
+                        (item) => item.confidence >= 82,
+                      )
+                    }
+                  >
+                    Accept 82%+
+                  </button>
+                  <button
                     onClick={() => setZoom(100)}
                     className={zoom === 100 ? "selected" : ""}
                   >
@@ -1034,25 +1132,47 @@ function App() {
                           </div>
                         </div>
                       ) : (
-                        <img
-                          ref={healImageRef}
-                          draggable={false}
-                          style={{
-                            ...(zoom ? { width: `${zoom}%` } : {}),
-                            filter:
-                              compare === "Original"
-                                ? "none"
-                                : compare === "Edited"
-                                  ? editedFilter
-                                  : retouchFilter,
-                          }}
-                          src={
-                            compare === "Retouched"
-                              ? healedPreviews[current.path] || current.preview
-                              : current.preview
-                          }
-                          alt={current.name}
-                        />
+                        <div className="healImageStage">
+                          <img
+                            ref={healImageRef}
+                            draggable={false}
+                            style={{
+                              ...(zoom ? { width: `${zoom}%` } : {}),
+                              filter:
+                                compare === "Original"
+                                  ? "none"
+                                  : compare === "Edited"
+                                    ? editedFilter
+                                    : retouchFilter,
+                            }}
+                            src={
+                              compare === "Retouched"
+                                ? healedPreviews[current.path] ||
+                                  current.preview
+                                : current.preview
+                            }
+                            alt={current.name}
+                          />
+                          {(blemishSuggestions[current.path] || []).map(
+                            (suggestion, index) => (
+                              <button
+                                key={`${suggestion.x}-${suggestion.y}-${index}`}
+                                className={`blemishMarker ${suggestion.confidence >= 82 ? "high" : ""}`}
+                                style={{
+                                  left: `${suggestion.x * 100}%`,
+                                  top: `${suggestion.y * 100}%`,
+                                }}
+                                title={`${suggestion.confidence}% confidence — click to heal`}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
+                                }
+                                onClick={() => applySuggestion(suggestion)}
+                              >
+                                <span>{suggestion.confidence}%</span>
+                              </button>
+                            ),
+                          )}
+                        </div>
                       )}{" "}
                       {compare === "Retouched" && !splitView && (
                         <span className="previewBadge">
@@ -1072,6 +1192,13 @@ function App() {
                           }}
                         />
                       )}
+                      {!healMode &&
+                        (blemishSuggestions[current.path] || []).length > 0 && (
+                          <div className="suggestionLegend">
+                            {blemishSuggestions[current.path].length}{" "}
+                            suggestions · Click a marker to accept
+                          </div>
+                        )}
                     </div>
                     <div className="photoMeta">
                       <b>{current.name}</b>

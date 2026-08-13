@@ -1093,6 +1093,54 @@ aside {
   pointer-events: none;
   background: #fff1;
 }
+.healImageStage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: 650px;
+  line-height: 0;
+}
+.healImageStage > img {
+  display: block;
+}
+.blemishMarker {
+  position: absolute;
+  z-index: 7;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #e3ac64;
+  border-radius: 50%;
+  background: #25180da8;
+  box-shadow: 0 0 0 2px #0008;
+  cursor: pointer;
+}
+.blemishMarker.high {
+  border-color: #7fd17b;
+}
+.blemishMarker span {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  padding: 2px 3px;
+  background: #111e;
+  color: #eee;
+  font-size: 7px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.suggestionLegend {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  background: #171612e8;
+  border: 1px solid #9a7548;
+  color: #dcb780;
+  padding: 7px 9px;
+  font-size: 9px;
+  z-index: 6;
+}
 .retouchEngineStatus b {
   font-size: 11px;
 }

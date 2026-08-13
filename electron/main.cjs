@@ -132,6 +132,83 @@ async function applyHealOperations(input, operations = []) {
   return image.toBuffer();
 }
 
+async function analyzeBlemishes(input) {
+  const { data, info } = await sharp(input)
+    .resize({
+      width: 520,
+      height: 520,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const candidates = [];
+  const pixel = (x, y, channel) => data[(y * width + x) * channels + channel];
+  for (let y = 8; y < height - 8; y += 2)
+    for (let x = 8; x < width - 8; x += 2) {
+      const r = pixel(x, y, 0),
+        g = pixel(x, y, 1),
+        b = pixel(x, y, 2);
+      const max = Math.max(r, g, b),
+        min = Math.min(r, g, b);
+      const skinLike =
+        r > 70 &&
+        g > 35 &&
+        b > 20 &&
+        r > g &&
+        r > b &&
+        max - min > 12 &&
+        Math.abs(r - g) > 8;
+      if (!skinLike) continue;
+      let rr = 0,
+        gg = 0,
+        bb = 0,
+        count = 0;
+      for (const [dx, dy] of [
+        [-7, 0],
+        [7, 0],
+        [0, -7],
+        [0, 7],
+        [-5, -5],
+        [5, -5],
+        [-5, 5],
+        [5, 5],
+      ]) {
+        rr += pixel(x + dx, y + dy, 0);
+        gg += pixel(x + dx, y + dy, 1);
+        bb += pixel(x + dx, y + dy, 2);
+        count++;
+      }
+      const redExcess =
+        r - rr / count - 0.45 * (g - gg / count + (b - bb / count));
+      const darkness = ((rr + gg + bb) / count - (r + g + b)) / 3;
+      const score = Math.max(redExcess * 1.25, darkness);
+      if (score > 18) candidates.push({ x: x / width, y: y / height, score });
+    }
+  candidates.sort((a, b) => b.score - a.score);
+  const selected = [];
+  for (const candidate of candidates) {
+    if (
+      selected.some(
+        (item) =>
+          Math.hypot(item.x - candidate.x, item.y - candidate.y) < 0.035,
+      )
+    )
+      continue;
+    selected.push({
+      ...candidate,
+      confidence: Math.round(
+        Math.max(55, Math.min(96, 55 + candidate.score * 1.25)),
+      ),
+      radius: 0.014,
+    });
+    if (selected.length >= 24) break;
+  }
+  return selected;
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -335,6 +412,12 @@ ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
     payload.operations || [],
   );
   return `data:image/jpeg;base64,${(await sharp(healed).jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
+});
+
+ipcMain.handle("retouch:analyze-blemishes", async (_event, preview) => {
+  const encoded = String(preview || "").split(",")[1];
+  if (!encoded) throw new Error("Preview image is unavailable.");
+  return analyzeBlemishes(Buffer.from(encoded, "base64"));
 });
 
 ipcMain.handle("watermark:choose", async () => {
