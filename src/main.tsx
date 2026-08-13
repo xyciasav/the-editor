@@ -33,6 +33,7 @@ declare global {
     editor?: {
       darktableStatus(): Promise<DarktableStatus>;
       chooseShoot(): Promise<{ folder: string; files: Photo[] } | null>;
+      getThumbnail(filePath: string): Promise<string | null>;
       createShoot(shoot: {
         folder: string;
         files: Photo[];
@@ -128,6 +129,7 @@ function App() {
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [watermarkOpacity, setWatermarkOpacity] = useState(18);
   const [tiledWatermark, setTiledWatermark] = useState(true);
   const [creativeStyle, setCreativeStyle] = useState("Natural");
@@ -149,12 +151,35 @@ function App() {
     const timer = setTimeout(() => setProgress(null), 3500);
     return () => clearTimeout(timer);
   }, [progress]);
+  useEffect(() => {
+    if (!shoot || created || !window.editor) return;
+    let cancelled = false;
+    const queue = [...shoot.files];
+    const worker = async () => {
+      while (!cancelled) {
+        const photo = queue.shift();
+        if (!photo) return;
+        const thumbnail = await window.editor?.getThumbnail(photo.path);
+        if (!cancelled && thumbnail)
+          setThumbnails((current) => ({ ...current, [photo.path]: thumbnail }));
+      }
+    };
+    Promise.all([worker(), worker(), worker()]);
+    return () => {
+      cancelled = true;
+    };
+  }, [shoot, created]);
   const chooseShoot = async () => {
     const result = await window.editor?.chooseShoot();
     if (result) {
       setShoot(result);
+      setThumbnails({});
       setSelectedPaths(new Set(result.files.map((file) => file.path)));
       setCreated(null);
+      setSelected(0);
+      setZoom(0);
+      setSplitView(false);
+      setSaved("");
       setError("");
       setStage("shoots");
     }
@@ -596,8 +621,6 @@ function App() {
                             <span>Live simulation · Level {strength}</span>
                           </div>
                         </div>
-                      ) : photo.thumbnail ? (
-                        <img src={photo.thumbnail} alt={photo.name} />
                       ) : (
                         <img
                           draggable={false}
@@ -806,6 +829,8 @@ function App() {
                       )}
                       {"preview" in photo ? (
                         <img src={photo.preview} alt={photo.name} />
+                      ) : thumbnails[photo.path] ? (
+                        <img src={thumbnails[photo.path]} alt={photo.name} />
                       ) : (
                         <div className="placeholder">
                           <span>{String(i + 1).padStart(2, "0")}</span>

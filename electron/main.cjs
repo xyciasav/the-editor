@@ -94,7 +94,7 @@ ipcMain.handle("shoot:choose", async () => {
   });
   if (result.canceled) return null;
   const folder = result.filePaths[0];
-  const baseFiles = fs
+  const files = fs
     .readdirSync(folder, { withFileTypes: true })
     .filter(
       (entry) =>
@@ -106,23 +106,20 @@ ipcMain.handle("shoot:choose", async () => {
       path: path.join(folder, entry.name),
       type: path.extname(entry.name).slice(1).toUpperCase(),
     }));
-  const files = await Promise.all(
-    baseFiles.map(async (file) => {
-      try {
-        const thumb = await nativeImage.createThumbnailFromPath(file.path, {
-          width: 360,
-          height: 270,
-        });
-        return {
-          ...file,
-          thumbnail: thumb.isEmpty() ? null : thumb.toDataURL(),
-        };
-      } catch {
-        return { ...file, thumbnail: null };
-      }
-    }),
-  );
   return { folder, files };
+});
+
+ipcMain.handle("thumbnail:get", async (_event, filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    const thumb = await nativeImage.createThumbnailFromPath(filePath, {
+      width: 360,
+      height: 270,
+    });
+    return thumb.isEmpty() ? null : thumb.toDataURL();
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle("shoot:create", async (event, shoot) => {
