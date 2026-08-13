@@ -161,6 +161,9 @@ function App() {
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [gridDensity, setGridDensity] = useState<"small" | "medium" | "large">(
+    "small",
+  );
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [watermarkOpacity, setWatermarkOpacity] = useState(18);
   const [tiledWatermark, setTiledWatermark] = useState(true);
@@ -1173,11 +1176,18 @@ function App() {
                           <div>
                             <img
                               draggable={false}
-                              style={{ filter: retouchFilter }}
-                              src={current.preview}
-                              alt="Retouch simulation"
+                              src={
+                                healedPreviews[current.path] ||
+                                levelPreviews[`${current.path}:${strength}`] ||
+                                current.preview
+                              }
+                              alt={`Rendered Level ${strength} retouch`}
                             />
-                            <span>Live simulation · Level {strength}</span>
+                            <span>
+                              {levelPreviews[`${current.path}:${strength}`]
+                                ? `Rendered retouch · Level ${strength}`
+                                : "Rendering…"}
+                            </span>
                           </div>
                         </div>
                       ) : (
@@ -1429,6 +1439,18 @@ function App() {
                       </span>
                     </div>
                     <div>
+                      <div className="densityControl">
+                        <span>Thumbnail size</span>
+                        {(["small", "medium", "large"] as const).map((size) => (
+                          <button
+                            key={size}
+                            className={gridDensity === size ? "selected" : ""}
+                            onClick={() => setGridDensity(size)}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
                       <button
                         className="secondary"
                         onClick={() => setSelectedPaths(new Set())}
@@ -1448,7 +1470,9 @@ function App() {
                     </div>
                   </div>
                 )}
-                <div className="fileGrid selectionGrid">
+                <div
+                  className={`fileGrid selectionGrid density-${gridDensity}`}
+                >
                   {(created?.previews || shoot.files).map((photo, i) => (
                     <article
                       role={!created ? "button" : undefined}
