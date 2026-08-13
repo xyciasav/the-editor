@@ -136,9 +136,20 @@ ipcMain.handle("export:start", async (event, payload) => {
       const image = sharp(developed); const metadata = await image.metadata();
       const longEdge = Math.max(metadata.width || 0, metadata.height || 0); const scale = longEdge > 2048 ? 2048 / longEdge : 1;
       const outputWidth = Math.round((metadata.width || 2048) * scale); const outputHeight = Math.round((metadata.height || 2048) * scale);
-      const markWidth = Math.max(80, Math.round(outputWidth * 0.12));
-      const mark = await sharp(payload.watermark).resize({ width: markWidth }).png().toBuffer();
-      await sharp(developed).resize({ width: outputWidth, height: outputHeight, fit: "inside", withoutEnlargement: true }).composite([{ input: mark, gravity: "southeast", blend: "over" }]).jpeg({ quality: 88 }).toFile(path.join(watermarkedDir, `${base}.jpg`));
+      const markWidth = Math.max(100, Math.round(outputWidth * 0.22));
+      const opacity = Math.max(0.05, Math.min(0.5, Number(payload.watermarkOpacity || 18) / 100));
+      const mark = await sharp(payload.watermark).resize({ width: markWidth }).ensureAlpha().linear([1, 1, 1, opacity], [0, 0, 0, 0]).png().toBuffer();
+      const markMeta = await sharp(mark).metadata();
+      const overlays = [];
+      if (payload.tiledWatermark !== false) {
+        const stepX = Math.max(markWidth + 40, Math.round(outputWidth * 0.34));
+        const stepY = Math.max((markMeta.height || 80) + 55, Math.round(outputHeight * 0.27));
+        for (let row = 0, top = 35; top < outputHeight; row++, top += stepY) {
+          const offset = row % 2 ? Math.round(stepX / 2) : 0;
+          for (let left = 25 - offset; left < outputWidth; left += stepX) if (left >= 0) overlays.push({ input: mark, left, top, blend: "over" });
+        }
+      } else overlays.push({ input: mark, gravity: "southeast", blend: "over" });
+      await sharp(developed).resize({ width: outputWidth, height: outputHeight, fit: "inside", withoutEnlargement: true }).composite(overlays).jpeg({ quality: 88 }).toFile(path.join(watermarkedDir, `${base}.jpg`));
     } catch (error) { failures.push({ name: photo.name, message: error.message }); }
     finally { for (const file of [staged, developed]) { try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {} } }
   }
