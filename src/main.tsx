@@ -112,7 +112,9 @@ function App() {
   const [created, setCreated] = useState<CreatedShoot | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
-  const [stage, setStage] = useState<"shoots" | "retouch" | "export">("shoots");
+  const [stage, setStage] = useState<
+    "shoots" | "retouch" | "creative" | "export"
+  >("shoots");
   const [selected, setSelected] = useState(0);
   const [compare, setCompare] = useState<"Original" | "Edited" | "Retouched">(
     "Retouched",
@@ -298,6 +300,21 @@ function App() {
       ? "none"
       : `brightness(${1 + strength * 0.012}) contrast(${1 + strength * 0.018}) saturate(${1 + strength * 0.014})`;
   const editedFilter = "brightness(1.025) contrast(1.035) saturate(1.025)";
+  const creativeFilter =
+    creativeStyle === "Black & White"
+      ? "grayscale(1)"
+      : creativeStyle === "Sepia"
+        ? "grayscale(1) sepia(.72) contrast(1.04)"
+        : creativeStyle === "High Contrast"
+          ? "contrast(1.28) saturate(1.15)"
+          : "none";
+  const cropRatio =
+    cropAspect === "Original"
+      ? undefined
+      : cropAspect
+          .split(":")
+          .map(Number)
+          .reduce((a, b) => a / b);
 
   return (
     <main>
@@ -323,7 +340,11 @@ function App() {
           >
             ✦ <span>Retouch review</span>
           </button>
-          <button>
+          <button
+            className={stage === "creative" ? "active" : ""}
+            disabled={!created}
+            onClick={() => created && setStage("creative")}
+          >
             ◫ <span>Editing profiles</span>
           </button>
           <button>
@@ -361,8 +382,11 @@ function App() {
                 <p className="eyebrow">FINAL STEP · DUAL EXPORT</p>
                 <h1>Export setup</h1>
               </div>
-              <button className="secondary" onClick={() => setStage("retouch")}>
-                ← Back to retouch
+              <button
+                className="secondary"
+                onClick={() => setStage("creative")}
+              >
+                ← Back to creative review
               </button>
             </header>
             <div className="exportIntro">
@@ -454,45 +478,20 @@ function App() {
                 <strong>{watermarkOpacity}%</strong>
               </label>
             </div>
-            <div className="creativePanel">
+            <div className="creativeSummary">
               <div>
-                <p className="eyebrow">CREATIVE LOOK</p>
-                <div className="presetButtons">
-                  {["Natural", "Black & White", "Sepia", "High Contrast"].map(
-                    (style) => (
-                      <button
-                        key={style}
-                        className={creativeStyle === style ? "selected" : ""}
-                        onClick={() => setCreativeStyle(style)}
-                      >
-                        {style}
-                      </button>
-                    ),
-                  )}
-                </div>
+                <p className="eyebrow">APPROVED CREATIVE EDIT</p>
+                <b>{creativeStyle}</b>
+                <span>
+                  {cropAspect} crop · {vignette}% vignette
+                </span>
               </div>
-              <label>
-                <b>Center crop</b>
-                <select
-                  value={cropAspect}
-                  onChange={(event) => setCropAspect(event.target.value)}
-                >
-                  {["Original", "1:1", "4:5", "3:2", "16:9"].map((aspect) => (
-                    <option key={aspect}>{aspect}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <b>Vignette</b>
-                <input
-                  type="range"
-                  min="0"
-                  max="60"
-                  value={vignette}
-                  onChange={(event) => setVignette(Number(event.target.value))}
-                />
-                <span>{vignette}%</span>
-              </label>
+              <button
+                className="secondary"
+                onClick={() => setStage("creative")}
+              >
+                Review or change
+              </button>
             </div>
             <div className="destination">
               <div>
@@ -529,6 +528,118 @@ function App() {
                 <span>{exportResult}</span>
               </div>
             )}
+          </div>
+        ) : stage === "creative" && created ? (
+          <div className="creativeStage">
+            <header>
+              <div>
+                <p className="eyebrow">CREATIVE REVIEW · NON-DESTRUCTIVE</p>
+                <h1>Crop and finishing look</h1>
+              </div>
+              <div className="headerActions">
+                <button
+                  className="secondary"
+                  onClick={() => setStage("retouch")}
+                >
+                  ← Back to retouch
+                </button>
+                <button className="primary" onClick={() => setStage("export")}>
+                  Approve & continue to export →
+                </button>
+              </div>
+            </header>
+            <div className="creativeLayout">
+              <div className="creativeViewer">
+                {current ? (
+                  <div
+                    className="creativeCanvas"
+                    style={{ aspectRatio: cropRatio }}
+                  >
+                    <img
+                      src={current.preview}
+                      alt={current.name}
+                      style={{
+                        filter: creativeFilter,
+                        objectFit:
+                          cropAspect === "Original" ? "contain" : "cover",
+                      }}
+                    />
+                    <i style={{ opacity: vignette / 100 }} />
+                  </div>
+                ) : (
+                  <div className="placeholder">No preview available</div>
+                )}
+                <div className="photoMeta">
+                  <b>{current?.name}</b>
+                  <span>
+                    {selected + 1} of {created.previews.length} · {cropAspect}{" "}
+                    crop · {creativeStyle}
+                  </span>
+                </div>
+              </div>
+              <div className="creativeControls">
+                <p className="eyebrow">LOOK</p>
+                <div className="lookGrid">
+                  {["Natural", "Black & White", "Sepia", "High Contrast"].map(
+                    (style) => (
+                      <button
+                        key={style}
+                        className={creativeStyle === style ? "selected" : ""}
+                        onClick={() => setCreativeStyle(style)}
+                      >
+                        <span
+                          className={`lookSwatch look-${style.toLowerCase().replaceAll(" ", "-")}`}
+                        />
+                        <b>{style}</b>
+                      </button>
+                    ),
+                  )}
+                </div>
+                <div className="creativeControl">
+                  <label htmlFor="crop">Crop ratio</label>
+                  <select
+                    id="crop"
+                    value={cropAspect}
+                    onChange={(event) => setCropAspect(event.target.value)}
+                  >
+                    {["Original", "1:1", "4:5", "3:2", "16:9"].map((aspect) => (
+                      <option key={aspect}>{aspect}</option>
+                    ))}
+                  </select>
+                  <small>
+                    Center crop preview. Originals remain untouched.
+                  </small>
+                </div>
+                <div className="creativeControl">
+                  <label htmlFor="vignette">
+                    Vignette <strong>{vignette}%</strong>
+                  </label>
+                  <input
+                    id="vignette"
+                    type="range"
+                    min="0"
+                    max="60"
+                    value={vignette}
+                    onChange={(event) =>
+                      setVignette(Number(event.target.value))
+                    }
+                  />
+                  <small>Darkens the edges to draw attention inward.</small>
+                </div>
+              </div>
+            </div>
+            <div className="filmstrip">
+              {created.previews.map((photo, i) => (
+                <button
+                  key={photo.path}
+                  className={i === selected ? "selected" : ""}
+                  onClick={() => setSelected(i)}
+                >
+                  <img src={photo.preview} alt="" />
+                  <span>{i + 1}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : stage === "retouch" && created ? (
           <div className="retouch">
@@ -717,9 +828,9 @@ function App() {
                     <small className="saved">{saved}</small>
                     <button
                       className="primary continue"
-                      onClick={() => setStage("export")}
+                      onClick={() => setStage("creative")}
                     >
-                      Continue to export setup →
+                      Continue to creative review →
                     </button>
                   </>
                 )}
