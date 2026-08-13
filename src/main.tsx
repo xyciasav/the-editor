@@ -169,6 +169,11 @@ function App() {
     {},
   );
   const [healing, setHealing] = useState(false);
+  const [brushCursor, setBrushCursor] = useState<{
+    x: number;
+    y: number;
+    size: number;
+  } | null>(null);
   const photoViewRef = useRef<HTMLDivElement>(null);
   const healImageRef = useRef<HTMLImageElement>(null);
   const cropViewRef = useRef<HTMLDivElement>(null);
@@ -366,6 +371,31 @@ function App() {
       )
       .finally(() => setHealing(false));
     return true;
+  };
+  const trackBrush = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!healMode || !healImageRef.current || !photoViewRef.current) {
+      setBrushCursor(null);
+      return;
+    }
+    const imageRect = healImageRef.current.getBoundingClientRect();
+    const viewRect = photoViewRef.current.getBoundingClientRect();
+    if (
+      event.clientX < imageRect.left ||
+      event.clientX > imageRect.right ||
+      event.clientY < imageRect.top ||
+      event.clientY > imageRect.bottom
+    ) {
+      setBrushCursor(null);
+      return;
+    }
+    setBrushCursor({
+      x: event.clientX - viewRect.left + photoViewRef.current.scrollLeft,
+      y: event.clientY - viewRect.top + photoViewRef.current.scrollTop,
+      size: Math.max(
+        8,
+        healRadius * Math.min(imageRect.width, imageRect.height) * 2,
+      ),
+    });
   };
   const undoHeal = () => {
     if (!current) return;
@@ -974,10 +1004,14 @@ function App() {
                       onPointerDown={(event) => {
                         if (!addHeal(event)) startPan(event);
                       }}
-                      onPointerMove={movePan}
+                      onPointerMove={(event) => {
+                        trackBrush(event);
+                        if (!healMode) movePan(event);
+                      }}
                       onPointerUp={stopPan}
                       onPointerCancel={stopPan}
-                      className={`photoView ${zoom ? "zoomed pannable" : ""}`}
+                      onPointerLeave={() => setBrushCursor(null)}
+                      className={`photoView ${zoom && !healMode ? "zoomed pannable" : zoom ? "zoomed healCanvas" : healMode ? "healCanvas" : ""}`}
                     >
                       {splitView ? (
                         <div className="splitPreview">
@@ -1026,6 +1060,17 @@ function App() {
                             ? "Healing…"
                             : `${healOperations[current.path]?.length || 0} healed spot${(healOperations[current.path]?.length || 0) === 1 ? "" : "s"}`}
                         </span>
+                      )}
+                      {healMode && brushCursor && (
+                        <span
+                          className="healCursor"
+                          style={{
+                            left: brushCursor.x,
+                            top: brushCursor.y,
+                            width: brushCursor.size,
+                            height: brushCursor.size,
+                          }}
+                        />
                       )}
                     </div>
                     <div className="photoMeta">

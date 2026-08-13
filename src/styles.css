@@ -1078,6 +1078,21 @@ aside {
   width: 80px;
   accent-color: #c49b65;
 }
+.healCanvas {
+  cursor: none;
+}
+.healCursor {
+  position: absolute;
+  z-index: 8;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px #000,
+    0 0 8px #0008;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background: #fff1;
+}
 .retouchEngineStatus b {
   font-size: 11px;
 }

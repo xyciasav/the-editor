@@ -62,21 +62,58 @@ async function applyHealOperations(input, operations = []) {
     const size = radius * 2;
     const left = Math.max(0, Math.min(width - size, cx - radius));
     const top = Math.max(0, Math.min(height - size, cy - radius));
-    const donorLeft = Math.max(
-      0,
-      Math.min(width - size, left + (left + size * 2 < width ? size : -size)),
-    );
-    const donorTop = Math.max(
-      0,
-      Math.min(
-        height - size,
-        top +
-          (top + size * 2 < height
-            ? Math.round(radius * 0.45)
-            : -Math.round(radius * 0.45)),
-      ),
-    );
     const base = await image.toBuffer();
+    const targetStats = await sharp(base)
+      .extract({ left, top, width: size, height: size })
+      .stats();
+    const offsets = [
+      [-2, 0],
+      [2, 0],
+      [0, -2],
+      [0, 2],
+      [-1.5, -1.5],
+      [1.5, -1.5],
+      [-1.5, 1.5],
+      [1.5, 1.5],
+    ];
+    let best = null;
+    for (const [ox, oy] of offsets) {
+      const candidateLeft = Math.max(
+        0,
+        Math.min(width - size, Math.round(left + ox * radius)),
+      );
+      const candidateTop = Math.max(
+        0,
+        Math.min(height - size, Math.round(top + oy * radius)),
+      );
+      if (
+        Math.abs(candidateLeft - left) < radius &&
+        Math.abs(candidateTop - top) < radius
+      )
+        continue;
+      const stats = await sharp(base)
+        .extract({
+          left: candidateLeft,
+          top: candidateTop,
+          width: size,
+          height: size,
+        })
+        .stats();
+      const distance = [0, 1, 2].reduce(
+        (sum, channel) =>
+          sum +
+          Math.pow(
+            (stats.channels[channel]?.mean || 0) -
+              (targetStats.channels[channel]?.mean || 0),
+            2,
+          ),
+        0,
+      );
+      if (!best || distance < best.distance)
+        best = { left: candidateLeft, top: candidateTop, distance };
+    }
+    const donorLeft = best?.left ?? left;
+    const donorTop = best?.top ?? top;
     const patch = await sharp(base)
       .extract({ left: donorLeft, top: donorTop, width: size, height: size })
       .png()
