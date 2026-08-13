@@ -85,6 +85,14 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
   return { projectDir, previews, failures, total: shoot.files.length };
 });
 
+ipcMain.handle("retouch:save", async (_event, payload) => {
+  if (!payload?.projectDir || !payload.projectDir.startsWith(app.getPath("userData"))) throw new Error("Invalid project location.");
+  const retouchFile = path.join(payload.projectDir, "retouch-plan.json");
+  const plan = { version: 1, updatedAt: new Date().toISOString(), strength: payload.strength, operations: payload.operations };
+  fs.writeFileSync(retouchFile, JSON.stringify(plan, null, 2));
+  return { path: retouchFile, updatedAt: plan.updatedAt };
+});
+
 app.whenReady().then(createWindow);
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
