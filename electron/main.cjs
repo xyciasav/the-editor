@@ -333,17 +333,25 @@ ipcMain.handle("export:start", async (event, payload) => {
         const current = (sourceMeta.width || 1) / (sourceMeta.height || 1);
         if (current > target) {
           const width = Math.round((sourceMeta.height || 1) * target);
+          const maxLeft = Math.max(0, (sourceMeta.width || width) - width);
           master = master.extract({
-            left: Math.round(((sourceMeta.width || width) - width) / 2),
+            left: Math.round(
+              (maxLeft * Math.max(0, Math.min(100, creativeEdit.cropX ?? 50))) /
+                100,
+            ),
             top: 0,
             width,
             height: sourceMeta.height,
           });
         } else {
           const height = Math.round((sourceMeta.width || 1) / target);
+          const maxTop = Math.max(0, (sourceMeta.height || height) - height);
           master = master.extract({
             left: 0,
-            top: Math.round(((sourceMeta.height || height) - height) / 2),
+            top: Math.round(
+              (maxTop * Math.max(0, Math.min(100, creativeEdit.cropY ?? 50))) /
+                100,
+            ),
             width: sourceMeta.width,
             height,
           });

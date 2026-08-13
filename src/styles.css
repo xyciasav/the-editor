@@ -979,6 +979,98 @@ aside {
   background: #090909;
   display: grid;
   place-items: center;
+  touch-action: none;
+  cursor: move;
+}
+.cropGrid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px solid #f1d09d;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.18);
+}
+.cropGrid span {
+  position: absolute;
+  background: #fff8;
+  pointer-events: none;
+}
+.cropGrid span:nth-child(1),
+.cropGrid span:nth-child(2) {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.cropGrid span:nth-child(1) {
+  left: 33.333%;
+}
+.cropGrid span:nth-child(2) {
+  left: 66.666%;
+}
+.cropGrid span:nth-child(3),
+.cropGrid span:nth-child(4) {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.cropGrid span:nth-child(3) {
+  top: 33.333%;
+}
+.cropGrid span:nth-child(4) {
+  top: 66.666%;
+}
+.cropPosition {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111d;
+  color: #eac48c;
+  border: 1px solid #9a7548;
+  padding: 6px 9px;
+  font-size: 9px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.creativeControl {
+  min-width: 0;
+}
+.creativeControl select {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+  text-overflow: ellipsis;
+}
+.retouchEngineStatus {
+  margin: 14px 0;
+  padding: 11px 12px;
+  background: #2a1d18;
+  border: 1px solid #74483b;
+  color: #dfb0a3;
+}
+.retouchEngineStatus b,
+.retouchEngineStatus span {
+  display: block;
+}
+.retouchEngineStatus b {
+  font-size: 11px;
+}
+.retouchEngineStatus span {
+  font-size: 9px;
+  line-height: 1.45;
+  margin-top: 5px;
+  color: #af8e85;
+}
+.operation.pending {
+  grid-template-columns: 22px 1fr auto;
+  position: relative;
+}
+.pendingBadge {
+  grid-column: 2/4;
+  font-size: 8px;
+  color: #c18b71;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
 }
 .creativeCanvas img {
   width: 100%;

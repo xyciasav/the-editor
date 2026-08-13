@@ -22,11 +22,19 @@ type Operation = {
   action: "Auto Retouch" | "Suggested" | "Review" | "Preserve";
   enabled: boolean;
 };
-type CreativeEdit = { style: string; crop: string; vignette: number };
+type CreativeEdit = {
+  style: string;
+  crop: string;
+  vignette: number;
+  cropX: number;
+  cropY: number;
+};
 const defaultCreativeEdit: CreativeEdit = {
   style: "Natural",
   crop: "Original",
   vignette: 0,
+  cropX: 50,
+  cropY: 50,
 };
 type Progress = {
   kind: string;
@@ -148,6 +156,13 @@ function App() {
   );
   const [copiedEdit, setCopiedEdit] = useState<CreativeEdit | null>(null);
   const photoViewRef = useRef<HTMLDivElement>(null);
+  const cropViewRef = useRef<HTMLDivElement>(null);
+  const cropDragRef = useRef<{
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const dragRef = useRef<{
     x: number;
     y: number;
@@ -337,6 +352,41 @@ function App() {
     if (copiedEdit) updateCreative(copiedEdit);
   };
   const resetCreative = () => updateCreative(defaultCreativeEdit);
+  const startCropDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (currentEdit.crop === "Original" || !cropViewRef.current) return;
+    cropDragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      startX: currentEdit.cropX,
+      startY: currentEdit.cropY,
+    };
+    cropViewRef.current.setPointerCapture(event.pointerId);
+  };
+  const moveCropDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropDragRef.current || !cropViewRef.current) return;
+    const rect = cropViewRef.current.getBoundingClientRect();
+    updateCreative({
+      cropX: Math.max(
+        0,
+        Math.min(
+          100,
+          cropDragRef.current.startX +
+            ((event.clientX - cropDragRef.current.x) / rect.width) * 100,
+        ),
+      ),
+      cropY: Math.max(
+        0,
+        Math.min(
+          100,
+          cropDragRef.current.startY +
+            ((event.clientY - cropDragRef.current.y) / rect.height) * 100,
+        ),
+      ),
+    });
+  };
+  const stopCropDrag = () => {
+    cropDragRef.current = null;
+  };
   const activeCount = operations.filter(
     (operation) => operation.enabled,
   ).length;
@@ -602,8 +652,13 @@ function App() {
               <div className="creativeViewer">
                 {current ? (
                   <div
+                    ref={cropViewRef}
                     className="creativeCanvas"
                     style={{ aspectRatio: cropRatio }}
+                    onPointerDown={startCropDrag}
+                    onPointerMove={moveCropDrag}
+                    onPointerUp={stopCropDrag}
+                    onPointerCancel={stopCropDrag}
                   >
                     <img
                       src={current.preview}
@@ -612,9 +667,24 @@ function App() {
                         filter: creativeFilter,
                         objectFit:
                           currentEdit.crop === "Original" ? "contain" : "cover",
+                        objectPosition: `${currentEdit.cropX}% ${currentEdit.cropY}%`,
                       }}
                     />
                     <i style={{ opacity: currentEdit.vignette / 100 }} />
+                    {currentEdit.crop !== "Original" && (
+                      <>
+                        <div className="cropGrid">
+                          <span />
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <div className="cropPosition">
+                          Drag to reframe · {Math.round(currentEdit.cropX)}%,{" "}
+                          {Math.round(currentEdit.cropY)}%
+                        </div>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="placeholder">No preview available</div>
@@ -661,7 +731,8 @@ function App() {
                     ))}
                   </select>
                   <small>
-                    Center crop preview. Originals remain untouched.
+                    Choose a ratio, then drag the photograph in the preview to
+                    reframe it.
                   </small>
                 </div>
                 <div className="creativeControl">
@@ -873,8 +944,16 @@ function App() {
                   Level 2 is recommended. Level 4 always requires explicit
                   selection and approval.
                 </p>
+                <div className="retouchEngineStatus">
+                  <b>Pixel retouch engine not connected</b>
+                  <span>
+                    Flyaways, healing, skin masks, and under-eye corrections are
+                    not being applied yet. The preview below only simulates
+                    tonal intensity.
+                  </span>
+                </div>
                 <div className="operationHead">
-                  <b>Retouch plan</b>
+                  <b>Planned retouch operations</b>
                   <span>
                     {operations.filter((o) => o.enabled).length} enabled
                   </span>
@@ -883,8 +962,9 @@ function App() {
                   {operations.map((op) => (
                     <button
                       key={op.id}
-                      className={`operation ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
+                      className={`operation pending ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
                       onClick={() => toggleOperation(op.id)}
+                      title="Saved as intent only; the pixel retouch engine is not connected"
                     >
                       <span className="check">
                         {op.action === "Preserve" ? "◆" : op.enabled ? "✓" : ""}
@@ -894,6 +974,7 @@ function App() {
                         <small>{op.detail}</small>
                       </span>
                       <em>{op.action}</em>
+                      <strong className="pendingBadge">Engine pending</strong>
                     </button>
                   ))}
                 </div>
