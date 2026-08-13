@@ -49,20 +49,30 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
   const projectKey = Buffer.from(shoot.folder).toString("base64url").slice(0, 32);
   const projectDir = path.join(app.getPath("userData"), "shoots", projectKey);
   const previewDir = path.join(projectDir, "previews");
+  const stagingDir = path.join(projectDir, "staging");
+  const cacheDir = path.join(projectDir, "darktable-cache");
+  const configDir = path.join(projectDir, "darktable-config");
   fs.mkdirSync(previewDir, { recursive: true });
+  fs.mkdirSync(stagingDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(configDir, { recursive: true });
   const previews = [];
   const failures = [];
 
   for (const [index, photo] of shoot.files.slice(0, 40).entries()) {
     const output = path.join(previewDir, `${String(index + 1).padStart(4, "0")}.jpg`);
+    const stagedInput = path.join(stagingDir, `${String(index + 1).padStart(4, "0")}${path.extname(photo.name).toLowerCase()}`);
     try {
       if (!fs.existsSync(output) || fs.statSync(output).mtimeMs < fs.statSync(photo.path).mtimeMs) {
-        await runDarktable([photo.path, output, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false"]);
+        fs.copyFileSync(photo.path, stagedInput);
+        await runDarktable([stagedInput, output, "--width", "1600", "--height", "1600", "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", cacheDir, "--configdir", configDir]);
       }
       const data = fs.readFileSync(output).toString("base64");
       previews.push({ ...photo, preview: `data:image/jpeg;base64,${data}` });
     } catch (error) {
       failures.push({ name: photo.name, message: error.message });
+    } finally {
+      try { if (fs.existsSync(stagedInput)) fs.unlinkSync(stagedInput); } catch {}
     }
   }
   const manifest = { sourceFolder: shoot.folder, createdAt: new Date().toISOString(), photoCount: shoot.files.length };
