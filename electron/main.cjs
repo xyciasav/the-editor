@@ -524,6 +524,33 @@ ipcMain.handle("retouch:render-level", async (_event, payload) => {
   return `data:image/jpeg;base64,${(await sharp(toned).jpeg({ quality: 91 }).toBuffer()).toString("base64")}`;
 });
 
+function watermarkLibrary() {
+  const directory = path.join(app.getPath("userData"), "watermarks");
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function savedWatermarks() {
+  return fs
+    .readdirSync(watermarkLibrary(), { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() && [".png", ".svg"].includes(path.extname(entry.name)),
+    )
+    .map((entry) => {
+      const watermarkPath = path.join(watermarkLibrary(), entry.name);
+      const extension = path.extname(watermarkPath).toLowerCase();
+      const mime = extension === ".svg" ? "image/svg+xml" : "image/png";
+      return {
+        name: path.basename(entry.name, extension).replace(/-[a-f0-9]{8}$/, ""),
+        path: watermarkPath,
+        preview: `data:${mime};base64,${fs.readFileSync(watermarkPath).toString("base64")}`,
+      };
+    });
+}
+
+ipcMain.handle("watermark:list", () => savedWatermarks());
+
 ipcMain.handle("watermark:choose", async () => {
   const result = await dialog.showOpenDialog({
     title: "Choose a watermark",
@@ -531,13 +558,20 @@ ipcMain.handle("watermark:choose", async () => {
     filters: [{ name: "Watermark", extensions: ["png", "svg"] }],
   });
   if (result.canceled) return null;
-  const watermarkPath = result.filePaths[0];
-  const extension = path.extname(watermarkPath).toLowerCase();
-  const mime = extension === ".svg" ? "image/svg+xml" : "image/png";
-  return {
-    path: watermarkPath,
-    preview: `data:${mime};base64,${fs.readFileSync(watermarkPath).toString("base64")}`,
-  };
+  const sourcePath = result.filePaths[0];
+  const extension = path.extname(sourcePath).toLowerCase();
+  const safeName = path
+    .basename(sourcePath, extension)
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "") || "watermark";
+  const hash = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(sourcePath))
+    .digest("hex")
+    .slice(0, 8);
+  const savedPath = path.join(watermarkLibrary(), `${safeName}-${hash}${extension}`);
+  if (!fs.existsSync(savedPath)) fs.copyFileSync(sourcePath, savedPath);
+  return savedWatermarks().find((item) => item.path === savedPath);
 });
 
 ipcMain.handle("export:choose-folder", async () => {

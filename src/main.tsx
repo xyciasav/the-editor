@@ -48,6 +48,7 @@ type BlemishSuggestion = HealOperation & {
   score: number;
   kind: string;
 };
+type SavedWatermark = { name: string; path: string; preview: string };
 declare global {
   interface Window {
     editor?: {
@@ -70,6 +71,7 @@ declare global {
         strength: number;
       }): Promise<string>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
+      listWatermarks(): Promise<SavedWatermark[]>;
       chooseExportFolder(): Promise<string | null>;
       startExport(payload: unknown): Promise<{
         completed: number;
@@ -157,6 +159,7 @@ function App() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [watermark, setWatermark] = useState("");
   const [watermarkPreview, setWatermarkPreview] = useState("");
+  const [watermarkLibrary, setWatermarkLibrary] = useState<SavedWatermark[]>([]);
   const [outputFolder, setOutputFolder] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState("");
@@ -217,6 +220,7 @@ function App() {
   } | null>(null);
   useEffect(() => {
     window.editor?.darktableStatus().then(setDarktable);
+    window.editor?.listWatermarks().then(setWatermarkLibrary);
   }, []);
   useEffect(() => window.editor?.onProgress(setProgress), []);
   useEffect(() => {
@@ -325,7 +329,42 @@ function App() {
     if (value) {
       setWatermark(value.path);
       setWatermarkPreview(value.preview);
+      setWatermarkLibrary((existing) => [
+        value,
+        ...existing.filter((item) => item.path !== value.path),
+      ]);
     }
+  };
+  const selectWatermark = (path: string) => {
+    const value = watermarkLibrary.find((item) => item.path === path);
+    setWatermark(value?.path || "");
+    setWatermarkPreview(value?.preview || "");
+  };
+  const removeCurrentPhoto = () => {
+    if (!created || !current || created.previews.length <= 1) return;
+    const remaining = created.previews.filter(
+      (photo) => photo.path !== current.path,
+    );
+    setCreated({
+      ...created,
+      previews: remaining,
+      total: remaining.length,
+    });
+    setShoot((existing) =>
+      existing
+        ? {
+            ...existing,
+            files: existing.files.filter((photo) => photo.path !== current.path),
+          }
+        : existing,
+    );
+    setCreativeSelection((existing) => {
+      const next = new Set(existing);
+      next.delete(current.path);
+      return next;
+    });
+    setSelected((index) => Math.min(index, remaining.length - 1));
+    setSaved("");
   };
   const chooseOutput = async () => {
     const value = await window.editor?.chooseExportFolder();
@@ -811,9 +850,25 @@ function App() {
                     </div>
                   )}
                 </div>
-                <button className="secondary" onClick={chooseWatermark}>
-                  {watermark ? "Change" : "Choose"} watermark
-                </button>
+                <div className="watermarkPicker">
+                  {watermarkLibrary.length > 0 && (
+                    <select
+                      aria-label="Saved watermark"
+                      value={watermark}
+                      onChange={(event) => selectWatermark(event.target.value)}
+                    >
+                      <option value="">Select saved watermark</option>
+                      {watermarkLibrary.map((item) => (
+                        <option key={item.path} value={item.path}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button className="secondary" onClick={chooseWatermark}>
+                    Upload new watermark
+                  </button>
+                </div>
               </article>
             </div>
             <div className="watermarkOptions">
@@ -1079,6 +1134,18 @@ function App() {
                   onClick={() => setStage("shoots")}
                 >
                   ← Back to shoot
+                </button>
+                <button
+                  className="secondary removePhoto"
+                  onClick={removeCurrentPhoto}
+                  disabled={created.previews.length <= 1}
+                  title={
+                    created.previews.length <= 1
+                      ? "A shoot must keep at least one photo"
+                      : "Remove this photo from retouch, creative review, and export"
+                  }
+                >
+                  Remove this photo
                 </button>
                 <div className="compare">
                   {(["Original", "Edited", "Retouched"] as const).map(
