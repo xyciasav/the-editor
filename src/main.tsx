@@ -407,6 +407,7 @@ function App() {
   };
   const renderHeals = (operations: HealOperation[]) => {
     if (!current) return;
+    const photoPath = current.path;
     setHealOperations((existing) => ({
       ...existing,
       [current.path]: operations,
@@ -417,9 +418,14 @@ function App() {
       .then((preview) =>
         setHealedPreviews((existing) => ({
           ...existing,
-          [current.path]: preview,
+          [photoPath]: preview,
         })),
       )
+      .catch((healError) => {
+        setError(
+          `Heal preview failed: ${healError instanceof Error ? healError.message : String(healError)}`,
+        );
+      })
       .finally(() => setHealing(false));
   };
   const startHealStroke = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -446,7 +452,8 @@ function App() {
       point.x - healStrokeRef.current.lastX,
       point.y - healStrokeRef.current.lastY,
     );
-    if (distance < healRadius * 0.85) return;
+    if (distance < healRadius * 1.15) return;
+    if (healStrokeRef.current.operations.length >= 160) return;
     healStrokeRef.current.operations.push(point);
     healStrokeRef.current.lastX = point.x;
     healStrokeRef.current.lastY = point.y;

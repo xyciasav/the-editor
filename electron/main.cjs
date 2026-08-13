@@ -48,11 +48,12 @@ function darktablePath(filePath) {
 }
 
 async function applyHealOperations(input, operations = []) {
-  let image = sharp(input);
-  const metadata = await image.metadata();
+  const base = await sharp(input).png().toBuffer();
+  const metadata = await sharp(base).metadata();
   const width = metadata.width || 1,
     height = metadata.height || 1;
-  for (const operation of operations) {
+  const composites = [];
+  for (const operation of operations.slice(0, 160)) {
     const radius = Math.max(
       3,
       Math.round(operation.radius * Math.min(width, height)),
@@ -62,7 +63,6 @@ async function applyHealOperations(input, operations = []) {
     const size = radius * 2;
     const left = Math.max(0, Math.min(width - size, cx - radius));
     const top = Math.max(0, Math.min(height - size, cy - radius));
-    const base = await image.toBuffer();
     const targetStats = await sharp(base)
       .extract({ left, top, width: size, height: size })
       .stats();
@@ -126,11 +126,10 @@ async function applyHealOperations(input, operations = []) {
       .composite([{ input: mask, blend: "dest-in" }])
       .png()
       .toBuffer();
-    image = sharp(base).composite([
-      { input: healedPatch, left, top, blend: "over" },
-    ]);
+    composites.push({ input: healedPatch, left, top, blend: "over" });
   }
-  return image.toBuffer();
+  if (!composites.length) return base;
+  return sharp(base).composite(composites).png().toBuffer();
 }
 
 async function analyzeBlemishes(input) {
@@ -315,6 +314,10 @@ function createWindow() {
   });
   if (!app.isPackaged) win.loadURL("http://localhost:5173");
   else win.loadFile(path.join(__dirname, "../dist/index.html"));
+  win.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Renderer process stopped:", details.reason);
+    if (details.reason !== "clean-exit" && !win.isDestroyed()) win.reload();
+  });
 }
 
 ipcMain.handle(
