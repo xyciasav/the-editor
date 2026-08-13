@@ -356,19 +356,27 @@ async function applyPortraitTone(input, strength = 0, operations) {
     );
   }
   if (level >= 3 && coverage > 0.004 && coverage < 0.48) {
-    const featheredMask = await sharp(subjectMask, {
+    const { data: featheredMask, info: maskInfo } = await sharp(subjectMask, {
       raw: { width: info.width, height: info.height, channels: 1 },
     })
       .blur(Math.max(3, Math.min(info.width, info.height) / 85))
       .raw()
-      .toBuffer();
+      .toBuffer({ resolveWithObject: true });
+    if (
+      maskInfo.width !== info.width ||
+      maskInfo.height !== info.height ||
+      !maskInfo.channels
+    )
+      throw new Error("Subject mask dimensions do not match the photograph.");
+    const maskWeight = (pixelIndex) =>
+      featheredMask[pixelIndex * maskInfo.channels] / 255;
     let subjectLuminance = 0,
       subjectWeightTotal = 0,
       surroundLuminance = 0,
       surroundWeightTotal = 0;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
-      const subjectWeight = featheredMask[pixelIndex] / 255;
+      const subjectWeight = maskWeight(pixelIndex);
       const luminance =
         0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
       subjectLuminance += luminance * subjectWeight;
@@ -389,7 +397,7 @@ async function applyPortraitTone(input, strength = 0, operations) {
     const brightSuppression = (level === 3 ? 0.09 : 0.14) * adaptiveNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
-      const subjectWeight = featheredMask[pixelIndex] / 255;
+      const subjectWeight = maskWeight(pixelIndex);
       const r = data[index],
         g = data[index + 1],
         b = data[index + 2];
