@@ -3,6 +3,7 @@ const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const sharp = require("sharp");
 
 const DARKTABLE = "C:\\Program Files\\darktable\\bin\\darktable-cli.exe";
 const PHOTO_EXTENSIONS = new Set([".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".raf", ".rw2", ".jpg", ".jpeg", ".png", ".tif", ".tiff"]);
@@ -48,7 +49,7 @@ ipcMain.handle("shoot:choose", async () => {
   return { folder, files };
 });
 
-ipcMain.handle("shoot:create", async (_event, shoot) => {
+ipcMain.handle("shoot:create", async (event, shoot) => {
   if (!fs.existsSync(DARKTABLE)) throw new Error("Darktable CLI was not found.");
   if (!shoot?.folder || !Array.isArray(shoot.files)) throw new Error("The selected shoot is invalid.");
   const normalizedSource = path.resolve(shoot.folder).toLowerCase();
@@ -66,6 +67,7 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
   const failures = [];
 
   for (const [index, photo] of shoot.files.slice(0, 40).entries()) {
+    event.sender.send("job:progress", { kind: "preview", current: index + 1, total: Math.min(shoot.files.length, 40), message: `Creating preview ${index + 1} of ${Math.min(shoot.files.length, 40)}` });
     const outputStem = path.join(previewDir, String(index + 1).padStart(4, "0"));
     const output = `${outputStem}.jpg`;
     const stagedInput = path.join(stagingDir, `${String(index + 1).padStart(4, "0")}${path.extname(photo.name).toLowerCase()}`);
@@ -88,6 +90,7 @@ ipcMain.handle("shoot:create", async (_event, shoot) => {
   }
   const manifest = { sourceFolder: shoot.folder, createdAt: new Date().toISOString(), photoCount: shoot.files.length };
   fs.writeFileSync(path.join(projectDir, "shoot.json"), JSON.stringify(manifest, null, 2));
+  event.sender.send("job:progress", { kind: "complete", current: previews.length, total: previews.length, message: `${previews.length} previews ready` });
   return { projectDir, previews, failures, total: shoot.files.length };
 });
 
@@ -97,6 +100,51 @@ ipcMain.handle("retouch:save", async (_event, payload) => {
   const plan = { version: 1, updatedAt: new Date().toISOString(), strength: payload.strength, operations: payload.operations };
   fs.writeFileSync(retouchFile, JSON.stringify(plan, null, 2));
   return { path: retouchFile, updatedAt: plan.updatedAt };
+});
+
+ipcMain.handle("watermark:choose", async () => {
+  const result = await dialog.showOpenDialog({ title: "Choose a watermark", properties: ["openFile"], filters: [{ name: "Watermark", extensions: ["png", "svg"] }] });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle("export:choose-folder", async () => {
+  const result = await dialog.showOpenDialog({ title: "Choose export folder", properties: ["openDirectory", "createDirectory"] });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle("export:start", async (event, payload) => {
+  if (!payload?.shoot?.files?.length || !payload.outputFolder || !payload.watermark) throw new Error("Shoot, output folder, and watermark are required.");
+  const finalDir = path.join(payload.outputFolder, "final");
+  const watermarkedDir = path.join(payload.outputFolder, "watermarked");
+  const workDir = path.join(payload.projectDir, "export-work");
+  const cacheDir = path.join(payload.projectDir, "darktable-cache");
+  const configDir = path.join(payload.projectDir, "darktable-config");
+  fs.mkdirSync(finalDir, { recursive: true }); fs.mkdirSync(watermarkedDir, { recursive: true }); fs.mkdirSync(workDir, { recursive: true });
+  const failures = [];
+  for (const [index, photo] of payload.shoot.files.entries()) {
+    const base = path.parse(photo.name).name;
+    const staged = path.join(workDir, `${String(index).padStart(5, "0")}${path.extname(photo.name).toLowerCase()}`);
+    const developedStem = path.join(workDir, `${String(index).padStart(5, "0")}-developed`);
+    const developed = `${developedStem}.jpg`;
+    try {
+      event.sender.send("job:progress", { kind: "export", current: index + 1, total: payload.shoot.files.length, message: `Exporting ${photo.name}` });
+      fs.copyFileSync(photo.path, staged);
+      const result = await runDarktable([darktablePath(staged), darktablePath(developedStem), "--hq", "true", "--out-ext", "jpg", "--apply-custom-presets", "false", "--core", "--cachedir", darktablePath(cacheDir), "--configdir", darktablePath(configDir)]);
+      if (!fs.existsSync(developed)) throw new Error(`${result.stderr || result.stdout || "Darktable created no output."}`.trim());
+      const masterPath = path.join(finalDir, `${base}.jpg`);
+      await sharp(developed).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toFile(masterPath);
+      const image = sharp(developed); const metadata = await image.metadata();
+      const longEdge = Math.max(metadata.width || 0, metadata.height || 0); const scale = longEdge > 2048 ? 2048 / longEdge : 1;
+      const outputWidth = Math.round((metadata.width || 2048) * scale); const outputHeight = Math.round((metadata.height || 2048) * scale);
+      const markWidth = Math.max(80, Math.round(outputWidth * 0.12));
+      const mark = await sharp(payload.watermark).resize({ width: markWidth }).png().toBuffer();
+      await sharp(developed).resize({ width: outputWidth, height: outputHeight, fit: "inside", withoutEnlargement: true }).composite([{ input: mark, gravity: "southeast", blend: "over" }]).jpeg({ quality: 88 }).toFile(path.join(watermarkedDir, `${base}.jpg`));
+    } catch (error) { failures.push({ name: photo.name, message: error.message }); }
+    finally { for (const file of [staged, developed]) { try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {} } }
+  }
+  const result = { finalDir, watermarkedDir, completed: payload.shoot.files.length - failures.length, failures };
+  event.sender.send("job:progress", { kind: "complete", current: result.completed, total: payload.shoot.files.length, message: `Export complete: ${result.completed} photographs` });
+  return result;
 });
 
 app.whenReady().then(createWindow);

@@ -13,9 +13,10 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.0.2",
-    "vite": "8.0.13",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "sharp": "^0.34.4",
+    "vite": "8.0.13"
   },
   "devDependencies": {
     "concurrently": "9.2.1",
@@ -26,9 +27,23 @@
   "build": {
     "appId": "studio.capturethechapter.editor",
     "productName": "The Editor",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis", "artifactName": "The-Editor-Setup-${version}.${ext}", "signAndEditExecutable": false },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "The-Editor-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   }
 }
