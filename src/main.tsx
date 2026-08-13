@@ -95,6 +95,12 @@ const strengthNames = [
   "Polished Portrait",
   "Editorial / Beauty",
 ];
+const retouchPreviewKey = (
+  photoPath: string,
+  strength: number,
+  operations: Operation[],
+) =>
+  `${photoPath}:${strength}:tone-${operations.find((item) => item.id === "tone")?.enabled !== false ? "on" : "off"}`;
 const baseOperations: Operation[] = [
   {
     id: "temporary",
@@ -202,6 +208,7 @@ function App() {
   );
   const [healing, setHealing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState("");
   const [blemishSuggestions, setBlemishSuggestions] = useState<
     Record<string, BlemishSuggestion[]>
   >({});
@@ -248,7 +255,7 @@ function App() {
   useEffect(() => {
     const selectedCurrent = created?.previews[selected];
     if (!selectedCurrent || !window.editor || strength < 2) return;
-    const key = `${selectedCurrent.path}:${strength}`;
+    const key = retouchPreviewKey(selectedCurrent.path, strength, operations);
     let cancelled = false;
     const timer = setTimeout(
       () =>
@@ -267,6 +274,43 @@ function App() {
     return () => {
       cancelled = true;
       clearTimeout(timer);
+    };
+  }, [created, selected, strength, operations]);
+  useEffect(() => {
+    const selectedCurrent = created?.previews[selected];
+    if (!selectedCurrent || !window.editor) return;
+    const manualHeals = healOperations[selectedCurrent.path] || [];
+    const manualAdjustments = localAdjustments[selectedCurrent.path] || [];
+    if (!manualHeals.length && !manualAdjustments.length) return;
+    let cancelled = false;
+    setHealedPreviews((existing) => {
+      const next = { ...existing };
+      delete next[selectedCurrent.path];
+      return next;
+    });
+    window.editor
+      .healPreview({
+        preview: selectedCurrent.preview,
+        operations: manualHeals,
+        localAdjustments: manualAdjustments,
+        strength,
+        retouchOperations: operations,
+      })
+      .then((preview) => {
+        if (!cancelled)
+          setHealedPreviews((existing) => ({
+            ...existing,
+            [selectedCurrent.path]: preview,
+          }));
+      })
+      .catch((previewError) => {
+        if (!cancelled)
+          setError(
+            `Retouch preview failed: ${previewError instanceof Error ? previewError.message : String(previewError)}`,
+          );
+      });
+    return () => {
+      cancelled = true;
     };
   }, [created, selected, strength, operations]);
   useEffect(() => {
@@ -700,6 +744,7 @@ function App() {
   const analyzeCurrent = async () => {
     if (!current || !window.editor) return;
     setAnalyzing(true);
+    setAnalysisMessage("");
     setHealMode(false);
     setCompare("Retouched");
     setSplitView(false);
@@ -709,6 +754,11 @@ function App() {
         ...existing,
         [current.path]: suggestions,
       }));
+      setAnalysisMessage(
+        suggestions.length
+          ? `${suggestions.length} possible temporary blemish${suggestions.length === 1 ? "" : "es"} found. Click a marker to accept it.`
+          : "No confident temporary blemishes were found in this photo. You can still use the Heal brush manually.",
+      );
     } finally {
       setAnalyzing(false);
     }
@@ -1452,6 +1502,9 @@ function App() {
                     ＋
                   </button>
                 </div>
+                {analysisMessage && (
+                  <div className="analysisMessage">{analysisMessage}</div>
+                )}
                 {current ? (
                   <>
                     <div
@@ -1498,15 +1551,29 @@ function App() {
                               draggable={false}
                               src={
                                 healedPreviews[current.path] ||
-                                levelPreviews[`${current.path}:${strength}`] ||
+                                levelPreviews[
+                                  retouchPreviewKey(
+                                    current.path,
+                                    strength,
+                                    operations,
+                                  )
+                                ] ||
                                 current.preview
                               }
                               alt={`Rendered Level ${strength} retouch`}
                             />
                             <span>
-                              {levelPreviews[`${current.path}:${strength}`]
-                                ? `Rendered retouch · Level ${strength}`
-                                : "Rendering…"}
+                              {strength < 2
+                                ? `Core retouch · Level ${strength}`
+                                : levelPreviews[
+                                      retouchPreviewKey(
+                                        current.path,
+                                        strength,
+                                        operations,
+                                      )
+                                    ]
+                                  ? `Rendered retouch · Level ${strength}`
+                                  : "Rendering…"}
                             </span>
                           </div>
                         </div>
@@ -1524,7 +1591,11 @@ function App() {
                               compare === "Retouched"
                                 ? healedPreviews[current.path] ||
                                   levelPreviews[
-                                    `${current.path}:${strength}`
+                                    retouchPreviewKey(
+                                      current.path,
+                                      strength,
+                                      operations,
+                                    )
                                   ] ||
                                   current.preview
                                 : current.preview
@@ -1684,7 +1755,10 @@ function App() {
                 <button
                   key={photo.path}
                   className={i === selected ? "selected" : ""}
-                  onClick={() => setSelected(i)}
+                  onClick={() => {
+                    setSelected(i);
+                    setAnalysisMessage("");
+                  }}
                 >
                   <img src={photo.preview} alt="" />
                   <span>{i + 1}</span>

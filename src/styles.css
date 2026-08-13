@@ -779,6 +779,14 @@ aside {
   border-bottom: 1px solid #302e29;
   background: #171613;
 }
+.analysisMessage {
+  padding: 8px 12px;
+  border-bottom: 1px solid #3b352b;
+  background: #211d17;
+  color: #c8ad84;
+  font-size: 11px;
+  text-align: center;
+}
 .zoomBar button,
 .secondary {
   border: 1px solid #3a3832;
