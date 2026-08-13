@@ -3,76 +3,914 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type DarktableStatus = { available: boolean; path: string; version?: string };
-type Photo = { name: string; path: string; type: string };
-type CreatedShoot = { projectDir: string; previews: (Photo & { preview: string })[]; failures: { name: string; message: string }[]; total: number };
-type Operation = { id: string; label: string; detail: string; action: "Auto Retouch" | "Suggested" | "Review" | "Preserve"; enabled: boolean };
-type Progress = { kind:string; current:number; total:number; message:string };
-declare global { interface Window { editor?: { darktableStatus(): Promise<DarktableStatus>; chooseShoot(): Promise<{ folder: string; files: Photo[] } | null>; createShoot(shoot: { folder: string; files: Photo[] }): Promise<CreatedShoot>; saveRetouchPlan(plan: unknown): Promise<{path:string}>; chooseWatermark():Promise<string|null>; chooseExportFolder():Promise<string|null>; startExport(payload:unknown):Promise<{completed:number;failures:{name:string;message:string}[];finalDir:string;watermarkedDir:string}>; onProgress(callback:(progress:Progress)=>void):()=>void } } }
+type Photo = {
+  name: string;
+  path: string;
+  type: string;
+  thumbnail?: string | null;
+};
+type CreatedShoot = {
+  projectDir: string;
+  previews: (Photo & { preview: string })[];
+  failures: { name: string; message: string }[];
+  total: number;
+};
+type Operation = {
+  id: string;
+  label: string;
+  detail: string;
+  action: "Auto Retouch" | "Suggested" | "Review" | "Preserve";
+  enabled: boolean;
+};
+type Progress = {
+  kind: string;
+  current: number;
+  total: number;
+  message: string;
+};
+declare global {
+  interface Window {
+    editor?: {
+      darktableStatus(): Promise<DarktableStatus>;
+      chooseShoot(): Promise<{ folder: string; files: Photo[] } | null>;
+      createShoot(shoot: {
+        folder: string;
+        files: Photo[];
+      }): Promise<CreatedShoot>;
+      saveRetouchPlan(plan: unknown): Promise<{ path: string }>;
+      chooseWatermark(): Promise<{ path: string; preview: string } | null>;
+      chooseExportFolder(): Promise<string | null>;
+      startExport(payload: unknown): Promise<{
+        completed: number;
+        failures: { name: string; message: string }[];
+        finalDir: string;
+        watermarkedDir: string;
+      }>;
+      onProgress(callback: (progress: Progress) => void): () => void;
+    };
+  }
+}
 
-const strengthNames = ["None", "Cleanup", "Natural Portrait", "Polished Portrait", "Editorial / Beauty"];
+const strengthNames = [
+  "None",
+  "Cleanup",
+  "Natural Portrait",
+  "Polished Portrait",
+  "Editorial / Beauty",
+];
 const baseOperations: Operation[] = [
-  { id:"temporary", label:"Temporary blemish cleanup", detail:"Pimples, small scratches, temporary redness and sensor spots", action:"Auto Retouch", enabled:true },
-  { id:"under-eye", label:"Under-eye light reduction", detail:"Reduce shadows by 25%; retain natural facial structure", action:"Suggested", enabled:true },
-  { id:"tone", label:"Subtle skin tone evening", detail:"Texture-aware correction; pores and natural texture preserved", action:"Suggested", enabled:true },
-  { id:"flyaway", label:"Isolated flyaway cleanup", detail:"Only obvious hairs against simple backgrounds", action:"Review", enabled:false },
-  { id:"identity", label:"Moles, freckles, scars & birthmarks", detail:"Identity-defining and uncertain features remain untouched", action:"Preserve", enabled:false },
-  { id:"teeth", label:"Teeth brightness", detail:"Optional mild brightness and yellow-cast reduction", action:"Review", enabled:false },
+  {
+    id: "temporary",
+    label: "Temporary blemish cleanup",
+    detail: "Pimples, small scratches, temporary redness and sensor spots",
+    action: "Auto Retouch",
+    enabled: true,
+  },
+  {
+    id: "under-eye",
+    label: "Under-eye light reduction",
+    detail: "Reduce shadows by 25%; retain natural facial structure",
+    action: "Suggested",
+    enabled: true,
+  },
+  {
+    id: "tone",
+    label: "Subtle skin tone evening",
+    detail: "Texture-aware correction; pores and natural texture preserved",
+    action: "Suggested",
+    enabled: true,
+  },
+  {
+    id: "flyaway",
+    label: "Isolated flyaway cleanup",
+    detail: "Only obvious hairs against simple backgrounds",
+    action: "Review",
+    enabled: false,
+  },
+  {
+    id: "identity",
+    label: "Moles, freckles, scars & birthmarks",
+    detail: "Identity-defining and uncertain features remain untouched",
+    action: "Preserve",
+    enabled: false,
+  },
+  {
+    id: "teeth",
+    label: "Teeth brightness",
+    detail: "Optional mild brightness and yellow-cast reduction",
+    action: "Review",
+    enabled: false,
+  },
 ];
 
 function App() {
   const [darktable, setDarktable] = useState<DarktableStatus | null>(null);
-  const [shoot, setShoot] = useState<{ folder: string; files: Photo[] } | null>(null);
+  const [shoot, setShoot] = useState<{ folder: string; files: Photo[] } | null>(
+    null,
+  );
   const [created, setCreated] = useState<CreatedShoot | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
-  const [stage, setStage] = useState<"shoots"|"retouch"|"export">("shoots");
+  const [stage, setStage] = useState<"shoots" | "retouch" | "export">("shoots");
   const [selected, setSelected] = useState(0);
-  const [compare, setCompare] = useState<"Original"|"Edited"|"Retouched">("Retouched");
+  const [compare, setCompare] = useState<"Original" | "Edited" | "Retouched">(
+    "Retouched",
+  );
   const [splitView, setSplitView] = useState(false);
   const [strength, setStrength] = useState(2);
   const [operations, setOperations] = useState(baseOperations);
   const [saved, setSaved] = useState("");
   const [zoom, setZoom] = useState(0);
-  const [progress, setProgress] = useState<Progress|null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [watermark, setWatermark] = useState("");
+  const [watermarkPreview, setWatermarkPreview] = useState("");
   const [outputFolder, setOutputFolder] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [watermarkOpacity, setWatermarkOpacity] = useState(18);
   const [tiledWatermark, setTiledWatermark] = useState(true);
+  const [creativeStyle, setCreativeStyle] = useState("Natural");
+  const [cropAspect, setCropAspect] = useState("Original");
+  const [vignette, setVignette] = useState(0);
   const photoViewRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{x:number;y:number;left:number;top:number}|null>(null);
-  useEffect(() => { window.editor?.darktableStatus().then(setDarktable); }, []);
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
+  useEffect(() => {
+    window.editor?.darktableStatus().then(setDarktable);
+  }, []);
   useEffect(() => window.editor?.onProgress(setProgress), []);
-  const chooseShoot = async () => { const result = await window.editor?.chooseShoot(); if (result) { setShoot(result); setSelectedPaths(new Set(result.files.map(file=>file.path))); setCreated(null); setError(""); setStage("shoots"); } };
-  const createShoot = async () => { if (!shoot || !window.editor) return; const selectedShoot={...shoot,files:shoot.files.filter(file=>selectedPaths.has(file.path))}; setProcessing(true); setError(""); try { setCreated(await window.editor.createShoot(selectedShoot)); setShoot(selectedShoot); } catch (reason) { setError(reason instanceof Error ? reason.message : "Preview generation failed."); } finally { setProcessing(false); } };
-  const toggleOperation = (id:string) => setOperations(items => items.map(item => item.id === id && item.action !== "Preserve" ? {...item,enabled:!item.enabled} : item));
-  const savePlan = async () => { if (!created || !window.editor) return; const result = await window.editor.saveRetouchPlan({projectDir:created.projectDir,strength,operations}); setSaved(`Saved locally · ${result.path}`); };
-  const chooseWatermark = async () => { const value=await window.editor?.chooseWatermark(); if(value)setWatermark(value); };
-  const chooseOutput = async () => { const value=await window.editor?.chooseExportFolder(); if(value)setOutputFolder(value); };
-  const startExport = async () => { if(!created||!shoot||!watermark||!outputFolder||!window.editor)return; setExporting(true);setExportResult("");try{const result=await window.editor.startExport({created,projectDir:created.projectDir,shoot,watermark,outputFolder,watermarkOpacity,tiledWatermark});setExportResult(`${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length?` · ${result.failures.length} failed`:""}`);}catch(reason){setExportResult(reason instanceof Error?reason.message:"Export failed.");}finally{setExporting(false);} };
-  const togglePhoto = (photo:Photo) => { if(created)return; setSelectedPaths(current=>{const next=new Set(current);next.has(photo.path)?next.delete(photo.path):next.add(photo.path);return next;}); };
-  const startPan = (event:React.PointerEvent<HTMLDivElement>) => { if(!zoom||!photoViewRef.current)return; const view=photoViewRef.current;dragRef.current={x:event.clientX,y:event.clientY,left:view.scrollLeft,top:view.scrollTop};view.setPointerCapture(event.pointerId); };
-  const movePan = (event:React.PointerEvent<HTMLDivElement>) => { const start=dragRef.current,view=photoViewRef.current;if(!start||!view)return;view.scrollLeft=start.left-(event.clientX-start.x);view.scrollTop=start.top-(event.clientY-start.y); };
-  const stopPan = () => { dragRef.current=null; };
+  useEffect(() => {
+    if (progress?.kind !== "complete") return;
+    const timer = setTimeout(() => setProgress(null), 3500);
+    return () => clearTimeout(timer);
+  }, [progress]);
+  const chooseShoot = async () => {
+    const result = await window.editor?.chooseShoot();
+    if (result) {
+      setShoot(result);
+      setSelectedPaths(new Set(result.files.map((file) => file.path)));
+      setCreated(null);
+      setError("");
+      setStage("shoots");
+    }
+  };
+  const createShoot = async () => {
+    if (!shoot || !window.editor) return;
+    const selectedShoot = {
+      ...shoot,
+      files: shoot.files.filter((file) => selectedPaths.has(file.path)),
+    };
+    setProcessing(true);
+    setError("");
+    try {
+      setCreated(await window.editor.createShoot(selectedShoot));
+      setShoot(selectedShoot);
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Preview generation failed.",
+      );
+    } finally {
+      setProcessing(false);
+    }
+  };
+  const toggleOperation = (id: string) =>
+    setOperations((items) =>
+      items.map((item) =>
+        item.id === id && item.action !== "Preserve"
+          ? { ...item, enabled: !item.enabled }
+          : item,
+      ),
+    );
+  const savePlan = async () => {
+    if (!created || !window.editor) return;
+    const result = await window.editor.saveRetouchPlan({
+      projectDir: created.projectDir,
+      strength,
+      operations,
+    });
+    setSaved(`Saved locally · ${result.path}`);
+  };
+  const chooseWatermark = async () => {
+    const value = await window.editor?.chooseWatermark();
+    if (value) {
+      setWatermark(value.path);
+      setWatermarkPreview(value.preview);
+    }
+  };
+  const chooseOutput = async () => {
+    const value = await window.editor?.chooseExportFolder();
+    if (value) setOutputFolder(value);
+  };
+  const startExport = async () => {
+    if (!created || !shoot || !watermark || !outputFolder || !window.editor)
+      return;
+    setExporting(true);
+    setExportResult("");
+    try {
+      const result = await window.editor.startExport({
+        created,
+        projectDir: created.projectDir,
+        shoot,
+        watermark,
+        outputFolder,
+        watermarkOpacity,
+        tiledWatermark,
+        creativeStyle,
+        cropAspect,
+        vignette,
+      });
+      setExportResult(
+        `${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
+      );
+    } catch (reason) {
+      setExportResult(
+        reason instanceof Error ? reason.message : "Export failed.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+  const togglePhoto = (photo: Photo) => {
+    if (created) return;
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      next.has(photo.path) ? next.delete(photo.path) : next.add(photo.path);
+      return next;
+    });
+  };
+  const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!zoom || !photoViewRef.current) return;
+    const view = photoViewRef.current;
+    dragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: view.scrollLeft,
+      top: view.scrollTop,
+    };
+    view.setPointerCapture(event.pointerId);
+  };
+  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = dragRef.current,
+      view = photoViewRef.current;
+    if (!start || !view) return;
+    view.scrollLeft = start.left - (event.clientX - start.x);
+    view.scrollTop = start.top - (event.clientY - start.y);
+  };
+  const stopPan = () => {
+    dragRef.current = null;
+  };
   const current = created?.previews[selected];
-  const activeCount = operations.filter(operation=>operation.enabled).length;
-  const retouchFilter = strength === 0 ? "none" : `brightness(${1 + strength * 0.012}) contrast(${1 + strength * 0.018}) saturate(${1 + strength * 0.014})`;
+  const activeCount = operations.filter(
+    (operation) => operation.enabled,
+  ).length;
+  const retouchFilter =
+    strength === 0
+      ? "none"
+      : `brightness(${1 + strength * 0.012}) contrast(${1 + strength * 0.018}) saturate(${1 + strength * 0.014})`;
   const editedFilter = "brightness(1.025) contrast(1.035) saturate(1.025)";
 
-  return <main>
-    <aside><div className="brand"><span className="mark">C</span><div><strong>THE EDITOR</strong><small>Capture the Chapter Studio</small></div></div><nav><button className={stage==="shoots"?"active":""} onClick={()=>setStage("shoots")}>⌂ <span>Shoots</span></button><button className={stage==="retouch"?"active":""} disabled={!created} onClick={()=>created&&setStage("retouch")}>✦ <span>Retouch review</span></button><button>◫ <span>Editing profiles</span></button><button>◇ <span>Watermarks</span></button><button className={stage==="export"?"active":""} disabled={!created} onClick={()=>created&&setStage("export")}>⇩ <span>Export setup</span></button></nav><div className="engine"><span className={darktable?.available ? "dot good" : "dot"}/><div><b>{darktable?.available ? `darktable ${darktable.version}` : "Checking darktable"}</b><small>{darktable?.available ? "RAW engine ready" : "RAW engine unavailable"}</small></div></div></aside>
-    <section className="content">
-      {stage==="export" && created ? <div className="exportStage"><header><div><p className="eyebrow">FINAL STEP · DUAL EXPORT</p><h1>Export setup</h1></div><button className="secondary" onClick={()=>setStage("retouch")}>← Back to retouch</button></header><div className="exportIntro"><p className="eyebrow">ONE BATCH · TWO DELIVERABLES</p><h2>Clean masters and client-ready copies.</h2><p>Darktable development is applied to both outputs and originals remain untouched. Retouch choices remain saved separately until the pixel-retouching engine is connected.</p></div><div className="exportCards"><article><span className="exportIcon">M</span><div><p className="eyebrow">MASTERS</p><h3>Full-resolution clean JPEGs</h3><ul><li>JPEG quality 95</li><li>Full resolution</li><li>sRGB output</li><li>No watermark</li></ul><code>{outputFolder?`${outputFolder}\\final`:"final/"}</code></div><span className="ready">Ready</span></article><article><span className="exportIcon">W</span><div><p className="eyebrow">CLIENT / WEB</p><h3>Protected proof JPEGs</h3><ul><li>2048 px long edge</li><li>JPEG quality 88</li><li>{tiledWatermark?"Repeated across photograph":"Single bottom-right mark"}</li><li>{watermarkOpacity}% opacity</li></ul><code>{watermark||"No watermark selected"}</code></div><button className="secondary" onClick={chooseWatermark}>{watermark?"Change":"Choose"} watermark</button></article></div><div className="watermarkOptions"><label><input type="checkbox" checked={tiledWatermark} onChange={event=>setTiledWatermark(event.target.checked)}/><span><b>Repeat watermark across photograph</b><small>Recommended for client proofs; makes cropping the watermark out difficult.</small></span></label><label className="opacity"><span><b>Watermark opacity</b><small>Light enough to view the image while protecting it.</small></span><input type="range" min="5" max="40" value={watermarkOpacity} onChange={event=>setWatermarkOpacity(Number(event.target.value))}/><strong>{watermarkOpacity}%</strong></label></div><div className="destination"><div><b>Export destination</b><span>{outputFolder||"Choose where the final and watermarked folders will be created."}</span></div><button className="secondary" onClick={chooseOutput}>{outputFolder?"Change folder":"Choose folder"}</button></div><div className="exportFooter"><div><b>{created.total} selected photographs queued</b><span>{watermark&&outputFolder?"Ready for simultaneous master and protected-proof export.":"Choose a watermark and destination to continue."}</span></div><button className="primary" onClick={startExport} disabled={!watermark||!outputFolder||exporting}>{exporting?"Exporting…":"Start dual export →"}</button></div>{exportResult&&<div className="notice success"><b>Export result</b><span>{exportResult}</span></div>}</div> : stage==="retouch" && created ? <div className="retouch">
-        <header><div><p className="eyebrow">RETOUCH ANALYSIS · NON-DESTRUCTIVE</p><h1>Natural portrait review</h1></div><div className="compare">{(["Original","Edited","Retouched"] as const).map(mode=><button className={compare===mode&&!splitView?"selected":""} onClick={()=>{setCompare(mode);setSplitView(false)}} key={mode}>{mode}</button>)}<button className={splitView?"selected":""} onClick={()=>setSplitView(value=>!value)}>Split</button></div></header>
-        <div className="retouchLayout"><div className="canvasPanel"><div className="zoomBar"><button onClick={()=>setZoom(0)} className={zoom===0?"selected":""}>Fit</button><button onClick={()=>setZoom(100)} className={zoom===100?"selected":""}>100%</button><button aria-label="Zoom out" onClick={()=>setZoom(value=>Math.max(50,(value||100)-25))}>−</button><span>{zoom===0?"Fit":`${zoom}%`}</span><button aria-label="Zoom in" onClick={()=>setZoom(value=>Math.min(400,(value||100)+25))}>＋</button></div>{current ? <><div ref={photoViewRef} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={stopPan} onPointerCancel={stopPan} className={`photoView ${zoom?"zoomed pannable":""}`}>{splitView?<div className="splitPreview"><div><img draggable={false} src={current.preview} alt="Original proxy"/><span>Original proxy</span></div><div><img draggable={false} style={{filter:retouchFilter}} src={current.preview} alt="Retouch simulation"/><span>Live simulation · Level {strength}</span></div></div>:<img draggable={false} style={{...(zoom?{width:`${zoom}%`}:{}),filter:compare==="Original"?"none":compare==="Edited"?editedFilter:retouchFilter}} src={current.preview} alt={current.name}/>} {compare==="Retouched"&&!splitView&&<span className="previewBadge">Live simulation · Level {strength}</span>}</div><div className="photoMeta"><b>{current.name}</b><span>{zoom?"Drag photo to pan · ":""}{selected+1} of {created.previews.length}</span></div></>:<div className="placeholder">No preview available</div>}</div>
-        <div className="controls"><p className="eyebrow">RETOUCH STRENGTH</p><div className="strengthName"><strong>Level {strength}</strong><span>{strengthNames[strength]}</span></div><input aria-label="Retouch strength" type="range" min="0" max="4" value={strength} onChange={e=>setStrength(Number(e.target.value))}/><p className="hint">Level 2 is recommended. Level 4 always requires explicit selection and approval.</p><div className="operationHead"><b>Retouch plan</b><span>{operations.filter(o=>o.enabled).length} enabled</span></div><div className="operations">{operations.map(op=><button key={op.id} className={`operation ${op.enabled?"on":""} ${op.action==="Preserve"?"locked":""}`} onClick={()=>toggleOperation(op.id)}><span className="check">{op.action==="Preserve"?"◆":op.enabled?"✓":""}</span><span><b>{op.label}</b><small>{op.detail}</small></span><em>{op.action}</em></button>)}</div><button className="primary save" onClick={savePlan}>Approve & save retouch plan</button>{saved&&<><small className="saved">{saved}</small><button className="primary continue" onClick={()=>setStage("export")}>Continue to export setup →</button></>}</div></div>
-        <div className="filmstrip">{created.previews.map((photo,i)=><button key={photo.path} className={i===selected?"selected":""} onClick={()=>setSelected(i)}><img src={photo.preview} alt=""/><span>{i+1}</span></button>)}</div>
-      </div> : <><header><div><p className="eyebrow">LOCAL WORKSPACE</p><h1>Your shoots</h1></div><button className="primary" onClick={chooseShoot}>＋ New shoot</button></header>
-      {!shoot ? <div className="hero"><div className="aperture">◉</div><p className="eyebrow">FROM CARD TO CLIENT GALLERY</p><h2>Spend less time editing.<br/><em>Keep your signature look.</em></h2><p className="lede">Import a session, approve a representative look, and let Darktable process every photograph non-destructively.</p><button className="primary large" onClick={chooseShoot}>Choose a shoot folder <span>→</span></button><div className="promise"><span>✓ Originals stay untouched</span><span>✓ Local processing</span><span>✓ Clean + watermarked export</span></div></div> : <div className="shoot"><div className="shootHead"><div><p className="eyebrow">NEW SHOOT</p><h2>{shoot.folder.split(/[\\/]/).pop()}</h2><p>{shoot.folder}</p></div><div className="count"><strong>{created?shoot.files.length:selectedPaths.size}</strong><span>{created?"photographs in shoot":`of ${shoot.files.length} selected`}</span></div></div>{!created&&<div className="selectionBar"><div><b>Choose photographs for this shoot</b><span>Only selected files will be previewed, stored, and exported.</span></div><div><button className="secondary" onClick={()=>setSelectedPaths(new Set())}>Clear</button><button className="secondary" onClick={()=>setSelectedPaths(new Set(shoot.files.map(file=>file.path)))}>Select all</button></div></div>}<div className="fileGrid selectionGrid">{(created?.previews || shoot.files).map((photo,i)=><article role={!created?"button":undefined} tabIndex={!created?0:undefined} onClick={()=>togglePhoto(photo)} className={!created?(selectedPaths.has(photo.path)?"photoSelected":"photoExcluded"):""} key={photo.path}>{!created&&<span className="selectCheck">{selectedPaths.has(photo.path)?"✓":""}</span>}{"preview" in photo?<img src={photo.preview} alt={photo.name}/>:<div className="placeholder"><span>{String(i+1).padStart(2,"0")}</span></div>}<b>{photo.name}</b><small>{photo.type} · {"preview" in photo?"Preview ready":selectedPaths.has(photo.path)?"Selected":"Not selected"}</small></article>)}</div>{error&&<div className="notice error"><b>Could not create previews</b><span>{error}</span></div>}{created&&<div className={created.previews.length?"notice success":"notice error"}><b>{created.previews.length?"Shoot created":"Preview generation failed"}</b><span>{created.previews.length} previews generated{created.failures.length?` · ${created.failures.length} could not be processed`:""}. Originals were not changed.{created.failures[0]?` First error: ${created.failures[0].message}`:""}</span></div>}<footer><span>{processing?"Darktable is creating previews…":created?`Local project: ${created.projectDir}`:selectedPaths.size?`${selectedPaths.size} selected. Ready to create previews without changing originals.`:"Select at least one photograph."}</span>{created?.previews.length?<button className="primary" onClick={()=>setStage("retouch")}>Retouch review →</button>:<button className="primary" onClick={createShoot} disabled={!selectedPaths.size||processing}>{processing?"Creating previews…":"Create selected shoot →"}</button>}</footer></div>}</>}
-      {progress&&<div className={`progressTray ${progress.kind==="complete"?"complete":""}`}><div><b>{progress.message}</b><span>{progress.current} / {progress.total}</span></div><div className="progressTrack"><i style={{width:`${progress.total?Math.round(progress.current/progress.total*100):0}%`}}/></div>{progress.kind==="complete"&&<button onClick={()=>setProgress(null)}>×</button>}</div>}
-    </section>
-  </main>;
+  return (
+    <main>
+      <aside>
+        <div className="brand">
+          <span className="mark">C</span>
+          <div>
+            <strong>THE EDITOR</strong>
+            <small>Capture the Chapter Studio</small>
+          </div>
+        </div>
+        <nav>
+          <button
+            className={stage === "shoots" ? "active" : ""}
+            onClick={() => setStage("shoots")}
+          >
+            ⌂ <span>Shoots</span>
+          </button>
+          <button
+            className={stage === "retouch" ? "active" : ""}
+            disabled={!created}
+            onClick={() => created && setStage("retouch")}
+          >
+            ✦ <span>Retouch review</span>
+          </button>
+          <button>
+            ◫ <span>Editing profiles</span>
+          </button>
+          <button>
+            ◇ <span>Watermarks</span>
+          </button>
+          <button
+            className={stage === "export" ? "active" : ""}
+            disabled={!created}
+            onClick={() => created && setStage("export")}
+          >
+            ⇩ <span>Export setup</span>
+          </button>
+        </nav>
+        <div className="engine">
+          <span className={darktable?.available ? "dot good" : "dot"} />
+          <div>
+            <b>
+              {darktable?.available
+                ? `darktable ${darktable.version}`
+                : "Checking darktable"}
+            </b>
+            <small>
+              {darktable?.available
+                ? "RAW engine ready"
+                : "RAW engine unavailable"}
+            </small>
+          </div>
+        </div>
+      </aside>
+      <section className="content">
+        {stage === "export" && created ? (
+          <div className="exportStage">
+            <header>
+              <div>
+                <p className="eyebrow">FINAL STEP · DUAL EXPORT</p>
+                <h1>Export setup</h1>
+              </div>
+              <button className="secondary" onClick={() => setStage("retouch")}>
+                ← Back to retouch
+              </button>
+            </header>
+            <div className="exportIntro">
+              <p className="eyebrow">ONE BATCH · TWO DELIVERABLES</p>
+              <h2>Clean masters and client-ready copies.</h2>
+              <p>
+                Darktable development is applied to both outputs and originals
+                remain untouched. Retouch choices remain saved separately until
+                the pixel-retouching engine is connected.
+              </p>
+            </div>
+            <div className="exportCards">
+              <article>
+                <span className="exportIcon">M</span>
+                <div>
+                  <p className="eyebrow">MASTERS</p>
+                  <h3>Full-resolution clean JPEGs</h3>
+                  <ul>
+                    <li>JPEG quality 95</li>
+                    <li>Full resolution</li>
+                    <li>sRGB output</li>
+                    <li>No watermark</li>
+                  </ul>
+                  <code>
+                    {outputFolder ? `${outputFolder}\\final` : "final/"}
+                  </code>
+                </div>
+                <span className="ready">Ready</span>
+              </article>
+              <article>
+                <span className="exportIcon">W</span>
+                <div>
+                  <p className="eyebrow">CLIENT / WEB</p>
+                  <h3>Protected proof JPEGs</h3>
+                  <ul>
+                    <li>2048 px long edge</li>
+                    <li>JPEG quality 88</li>
+                    <li>
+                      {tiledWatermark
+                        ? "Repeated across photograph"
+                        : "Single bottom-right mark"}
+                    </li>
+                    <li>{watermarkOpacity}% opacity</li>
+                  </ul>
+                  <code>{watermark || "No watermark selected"}</code>
+                  {watermarkPreview && (
+                    <div className="watermarkPreview">
+                      <img src={watermarkPreview} alt="Selected watermark" />
+                      <span>Selected watermark preview</span>
+                    </div>
+                  )}
+                </div>
+                <button className="secondary" onClick={chooseWatermark}>
+                  {watermark ? "Change" : "Choose"} watermark
+                </button>
+              </article>
+            </div>
+            <div className="watermarkOptions">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={tiledWatermark}
+                  onChange={(event) => setTiledWatermark(event.target.checked)}
+                />
+                <span>
+                  <b>Repeat watermark across photograph</b>
+                  <small>
+                    Recommended for client proofs; makes cropping the watermark
+                    out difficult.
+                  </small>
+                </span>
+              </label>
+              <label className="opacity">
+                <span>
+                  <b>Watermark opacity</b>
+                  <small>
+                    Light enough to view the image while protecting it.
+                  </small>
+                </span>
+                <input
+                  type="range"
+                  min="5"
+                  max="40"
+                  value={watermarkOpacity}
+                  onChange={(event) =>
+                    setWatermarkOpacity(Number(event.target.value))
+                  }
+                />
+                <strong>{watermarkOpacity}%</strong>
+              </label>
+            </div>
+            <div className="creativePanel">
+              <div>
+                <p className="eyebrow">CREATIVE LOOK</p>
+                <div className="presetButtons">
+                  {["Natural", "Black & White", "Sepia", "High Contrast"].map(
+                    (style) => (
+                      <button
+                        key={style}
+                        className={creativeStyle === style ? "selected" : ""}
+                        onClick={() => setCreativeStyle(style)}
+                      >
+                        {style}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </div>
+              <label>
+                <b>Center crop</b>
+                <select
+                  value={cropAspect}
+                  onChange={(event) => setCropAspect(event.target.value)}
+                >
+                  {["Original", "1:1", "4:5", "3:2", "16:9"].map((aspect) => (
+                    <option key={aspect}>{aspect}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <b>Vignette</b>
+                <input
+                  type="range"
+                  min="0"
+                  max="60"
+                  value={vignette}
+                  onChange={(event) => setVignette(Number(event.target.value))}
+                />
+                <span>{vignette}%</span>
+              </label>
+            </div>
+            <div className="destination">
+              <div>
+                <b>Export destination</b>
+                <span>
+                  {outputFolder ||
+                    "Choose where the final and watermarked folders will be created."}
+                </span>
+              </div>
+              <button className="secondary" onClick={chooseOutput}>
+                {outputFolder ? "Change folder" : "Choose folder"}
+              </button>
+            </div>
+            <div className="exportFooter">
+              <div>
+                <b>{created.total} selected photographs queued</b>
+                <span>
+                  {watermark && outputFolder
+                    ? "Ready for simultaneous master and protected-proof export."
+                    : "Choose a watermark and destination to continue."}
+                </span>
+              </div>
+              <button
+                className="primary"
+                onClick={startExport}
+                disabled={!watermark || !outputFolder || exporting}
+              >
+                {exporting ? "Exporting…" : "Start dual export →"}
+              </button>
+            </div>
+            {exportResult && (
+              <div className="notice success">
+                <b>Export result</b>
+                <span>{exportResult}</span>
+              </div>
+            )}
+          </div>
+        ) : stage === "retouch" && created ? (
+          <div className="retouch">
+            <header>
+              <div>
+                <p className="eyebrow">RETOUCH ANALYSIS · NON-DESTRUCTIVE</p>
+                <h1>Natural portrait review</h1>
+              </div>
+              <div className="compare">
+                {(["Original", "Edited", "Retouched"] as const).map((mode) => (
+                  <button
+                    className={compare === mode && !splitView ? "selected" : ""}
+                    onClick={() => {
+                      setCompare(mode);
+                      setSplitView(false);
+                    }}
+                    key={mode}
+                  >
+                    {mode}
+                  </button>
+                ))}
+                <button
+                  className={splitView ? "selected" : ""}
+                  onClick={() => setSplitView((value) => !value)}
+                >
+                  Split
+                </button>
+              </div>
+            </header>
+            <div className="retouchLayout">
+              <div className="canvasPanel">
+                <div className="zoomBar">
+                  <button
+                    onClick={() => setZoom(0)}
+                    className={zoom === 0 ? "selected" : ""}
+                  >
+                    Fit
+                  </button>
+                  <button
+                    onClick={() => setZoom(100)}
+                    className={zoom === 100 ? "selected" : ""}
+                  >
+                    100%
+                  </button>
+                  <button
+                    aria-label="Zoom out"
+                    onClick={() =>
+                      setZoom((value) => Math.max(50, (value || 100) - 25))
+                    }
+                  >
+                    −
+                  </button>
+                  <span>{zoom === 0 ? "Fit" : `${zoom}%`}</span>
+                  <button
+                    aria-label="Zoom in"
+                    onClick={() =>
+                      setZoom((value) => Math.min(400, (value || 100) + 25))
+                    }
+                  >
+                    ＋
+                  </button>
+                </div>
+                {current ? (
+                  <>
+                    <div
+                      ref={photoViewRef}
+                      onPointerDown={startPan}
+                      onPointerMove={movePan}
+                      onPointerUp={stopPan}
+                      onPointerCancel={stopPan}
+                      className={`photoView ${zoom ? "zoomed pannable" : ""}`}
+                    >
+                      {splitView ? (
+                        <div className="splitPreview">
+                          <div>
+                            <img
+                              draggable={false}
+                              src={current.preview}
+                              alt="Original proxy"
+                            />
+                            <span>Original proxy</span>
+                          </div>
+                          <div>
+                            <img
+                              draggable={false}
+                              style={{ filter: retouchFilter }}
+                              src={current.preview}
+                              alt="Retouch simulation"
+                            />
+                            <span>Live simulation · Level {strength}</span>
+                          </div>
+                        </div>
+                      ) : photo.thumbnail ? (
+                        <img src={photo.thumbnail} alt={photo.name} />
+                      ) : (
+                        <img
+                          draggable={false}
+                          style={{
+                            ...(zoom ? { width: `${zoom}%` } : {}),
+                            filter:
+                              compare === "Original"
+                                ? "none"
+                                : compare === "Edited"
+                                  ? editedFilter
+                                  : retouchFilter,
+                          }}
+                          src={current.preview}
+                          alt={current.name}
+                        />
+                      )}{" "}
+                      {compare === "Retouched" && !splitView && (
+                        <span className="previewBadge">
+                          Live simulation · Level {strength}
+                        </span>
+                      )}
+                    </div>
+                    <div className="photoMeta">
+                      <b>{current.name}</b>
+                      <span>
+                        {zoom ? "Drag photo to pan · " : ""}
+                        {selected + 1} of {created.previews.length}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="placeholder">No preview available</div>
+                )}
+              </div>
+              <div className="controls">
+                <p className="eyebrow">RETOUCH STRENGTH</p>
+                <div className="strengthName">
+                  <strong>Level {strength}</strong>
+                  <span>{strengthNames[strength]}</span>
+                </div>
+                <input
+                  aria-label="Retouch strength"
+                  type="range"
+                  min="0"
+                  max="4"
+                  value={strength}
+                  onChange={(e) => setStrength(Number(e.target.value))}
+                />
+                <p className="hint">
+                  Level 2 is recommended. Level 4 always requires explicit
+                  selection and approval.
+                </p>
+                <div className="operationHead">
+                  <b>Retouch plan</b>
+                  <span>
+                    {operations.filter((o) => o.enabled).length} enabled
+                  </span>
+                </div>
+                <div className="operations">
+                  {operations.map((op) => (
+                    <button
+                      key={op.id}
+                      className={`operation ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
+                      onClick={() => toggleOperation(op.id)}
+                    >
+                      <span className="check">
+                        {op.action === "Preserve" ? "◆" : op.enabled ? "✓" : ""}
+                      </span>
+                      <span>
+                        <b>{op.label}</b>
+                        <small>{op.detail}</small>
+                      </span>
+                      <em>{op.action}</em>
+                    </button>
+                  ))}
+                </div>
+                <button className="primary save" onClick={savePlan}>
+                  Approve & save retouch plan
+                </button>
+                {saved && (
+                  <>
+                    <small className="saved">{saved}</small>
+                    <button
+                      className="primary continue"
+                      onClick={() => setStage("export")}
+                    >
+                      Continue to export setup →
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="filmstrip">
+              {created.previews.map((photo, i) => (
+                <button
+                  key={photo.path}
+                  className={i === selected ? "selected" : ""}
+                  onClick={() => setSelected(i)}
+                >
+                  <img src={photo.preview} alt="" />
+                  <span>{i + 1}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <header>
+              <div>
+                <p className="eyebrow">LOCAL WORKSPACE</p>
+                <h1>Your shoots</h1>
+              </div>
+              <button className="primary" onClick={chooseShoot}>
+                ＋ New shoot
+              </button>
+            </header>
+            {!shoot ? (
+              <div className="hero">
+                <div className="aperture">◉</div>
+                <p className="eyebrow">FROM CARD TO CLIENT GALLERY</p>
+                <h2>
+                  Spend less time editing.
+                  <br />
+                  <em>Keep your signature look.</em>
+                </h2>
+                <p className="lede">
+                  Import a session, approve a representative look, and let
+                  Darktable process every photograph non-destructively.
+                </p>
+                <button className="primary large" onClick={chooseShoot}>
+                  Choose a shoot folder <span>→</span>
+                </button>
+                <div className="promise">
+                  <span>✓ Originals stay untouched</span>
+                  <span>✓ Local processing</span>
+                  <span>✓ Clean + watermarked export</span>
+                </div>
+              </div>
+            ) : (
+              <div className="shoot">
+                <div className="shootHead">
+                  <div>
+                    <p className="eyebrow">NEW SHOOT</p>
+                    <h2>{shoot.folder.split(/[\\/]/).pop()}</h2>
+                    <p>{shoot.folder}</p>
+                  </div>
+                  <div className="count">
+                    <strong>
+                      {created ? shoot.files.length : selectedPaths.size}
+                    </strong>
+                    <span>
+                      {created
+                        ? "photographs in shoot"
+                        : `of ${shoot.files.length} selected`}
+                    </span>
+                  </div>
+                </div>
+                {!created && (
+                  <div className="selectionBar">
+                    <div>
+                      <b>Choose photographs for this shoot</b>
+                      <span>
+                        Only selected files will be previewed, stored, and
+                        exported.
+                      </span>
+                    </div>
+                    <div>
+                      <button
+                        className="secondary"
+                        onClick={() => setSelectedPaths(new Set())}
+                      >
+                        Clear
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          setSelectedPaths(
+                            new Set(shoot.files.map((file) => file.path)),
+                          )
+                        }
+                      >
+                        Select all
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="fileGrid selectionGrid">
+                  {(created?.previews || shoot.files).map((photo, i) => (
+                    <article
+                      role={!created ? "button" : undefined}
+                      tabIndex={!created ? 0 : undefined}
+                      onClick={() => togglePhoto(photo)}
+                      className={
+                        !created
+                          ? selectedPaths.has(photo.path)
+                            ? "photoSelected"
+                            : "photoExcluded"
+                          : ""
+                      }
+                      key={photo.path}
+                    >
+                      {!created && (
+                        <span className="selectCheck">
+                          {selectedPaths.has(photo.path) ? "✓" : ""}
+                        </span>
+                      )}
+                      {"preview" in photo ? (
+                        <img src={photo.preview} alt={photo.name} />
+                      ) : (
+                        <div className="placeholder">
+                          <span>{String(i + 1).padStart(2, "0")}</span>
+                        </div>
+                      )}
+                      <b>{photo.name}</b>
+                      <small>
+                        {photo.type} ·{" "}
+                        {"preview" in photo
+                          ? "Preview ready"
+                          : selectedPaths.has(photo.path)
+                            ? "Selected"
+                            : "Not selected"}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+                {error && (
+                  <div className="notice error">
+                    <b>Could not create previews</b>
+                    <span>{error}</span>
+                  </div>
+                )}
+                {created && (
+                  <div
+                    className={
+                      created.previews.length
+                        ? "notice success"
+                        : "notice error"
+                    }
+                  >
+                    <b>
+                      {created.previews.length
+                        ? "Shoot created"
+                        : "Preview generation failed"}
+                    </b>
+                    <span>
+                      {created.previews.length} previews generated
+                      {created.failures.length
+                        ? ` · ${created.failures.length} could not be processed`
+                        : ""}
+                      . Originals were not changed.
+                      {created.failures[0]
+                        ? ` First error: ${created.failures[0].message}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+                <footer>
+                  <span>
+                    {processing
+                      ? "Darktable is creating previews…"
+                      : created
+                        ? `Local project: ${created.projectDir}`
+                        : selectedPaths.size
+                          ? `${selectedPaths.size} selected. Ready to create previews without changing originals.`
+                          : "Select at least one photograph."}
+                  </span>
+                  {created?.previews.length ? (
+                    <button
+                      className="primary"
+                      onClick={() => setStage("retouch")}
+                    >
+                      Retouch review →
+                    </button>
+                  ) : (
+                    <button
+                      className="primary"
+                      onClick={createShoot}
+                      disabled={!selectedPaths.size || processing}
+                    >
+                      {processing
+                        ? "Creating previews…"
+                        : "Create selected shoot →"}
+                    </button>
+                  )}
+                </footer>
+              </div>
+            )}
+          </>
+        )}
+        {progress && (
+          <div
+            className={`progressTray ${progress.kind === "complete" ? "complete" : ""}`}
+          >
+            <div>
+              <b>{progress.message}</b>
+              <span>
+                {progress.current} / {progress.total}
+              </span>
+            </div>
+            <div className="progressTrack">
+              <i
+                style={{
+                  width: `${progress.total ? Math.round((progress.current / progress.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            {progress.kind === "complete" && (
+              <button onClick={() => setProgress(null)}>×</button>
+            )}
+          </div>
+        )}
+      </section>
+    </main>
+  );
 }
-createRoot(document.getElementById("root")!).render(<App/>);
+createRoot(document.getElementById("root")!).render(<App />);
