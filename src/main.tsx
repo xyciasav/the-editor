@@ -1350,9 +1350,10 @@ function App() {
                   <b>Manual blemish healing available</b>
                   <span>
                     Choose Heal brush above, adjust its size, then click
-                    temporary blemishes. Repairs are stored per photo and
-                    applied during export. Automatic detection, flyaways, skin
-                    masks, and under-eye corrections remain pending.
+                    or drag across temporary blemishes. Levels 3 and 4 now use
+                    a feathered subject mask to lift facial midtones and gently
+                    suppress competing bright areas. Eye-specific enhancement,
+                    flyaways, and under-eye localization remain pending.
                   </span>
                 </div>
                 <div className="operationHead">

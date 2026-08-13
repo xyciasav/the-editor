@@ -241,6 +241,8 @@ async function applyPortraitTone(input, strength = 0) {
     .raw()
     .toBuffer({ resolveWithObject: true });
   const amount = level === 2 ? 0.12 : level === 3 ? 0.22 : 0.38;
+  const subjectMask = Buffer.alloc(info.width * info.height);
+  let subjectPixels = 0;
   for (let index = 0; index < data.length; index += info.channels) {
     const r = data[index],
       g = data[index + 1],
@@ -257,11 +259,42 @@ async function applyPortraitTone(input, strength = 0) {
       r - Math.min(g, b) > 10 &&
       Math.max(r, g, b) - Math.min(r, g, b) < 145;
     if (!skin) continue;
+    subjectMask[index / info.channels] = 255;
+    subjectPixels++;
     const excess = Math.max(0, r - (g * 1.18 + b * 0.18));
     const correction = Math.min(18, excess * amount);
     data[index] = Math.round(Math.max(0, r - correction));
     data[index + 1] = Math.round(Math.min(255, g + correction * 0.18));
     data[index + 2] = Math.round(Math.min(255, b + correction * 0.1));
+  }
+
+  const coverage = subjectPixels / (info.width * info.height);
+  if (level >= 3 && coverage > 0.004 && coverage < 0.48) {
+    const featheredMask = await sharp(subjectMask, {
+      raw: { width: info.width, height: info.height, channels: 1 },
+    })
+      .blur(Math.max(3, Math.min(info.width, info.height) / 85))
+      .raw()
+      .toBuffer();
+    const faceLift = level === 3 ? 0.16 : 0.23;
+    const brightSuppression = level === 3 ? 0.025 : 0.04;
+    for (let index = 0; index < data.length; index += info.channels) {
+      const pixelIndex = index / info.channels;
+      const subjectWeight = featheredMask[pixelIndex] / 255;
+      const r = data[index],
+        g = data[index + 1],
+        b = data[index + 2];
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      const shadowPriority = 0.45 + 0.55 * (1 - luminance / 255);
+      const highlightWeight = Math.max(0, (luminance - 120) / 135);
+      const scale =
+        1 +
+        faceLift * subjectWeight * shadowPriority -
+        brightSuppression * (1 - subjectWeight) * highlightWeight;
+      data[index] = Math.round(Math.max(0, Math.min(255, r * scale)));
+      data[index + 1] = Math.round(Math.max(0, Math.min(255, g * scale)));
+      data[index + 2] = Math.round(Math.max(0, Math.min(255, b * scale)));
+    }
   }
   return sharp(data, { raw: info }).png().toBuffer();
 }
