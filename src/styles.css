@@ -942,6 +942,11 @@ aside {
 .exportFooter span {
   display: block;
 }
+.exportAgainActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
 .exportFooter span {
   color: #817e77;
   font-size: 11px;

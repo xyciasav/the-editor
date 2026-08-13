@@ -112,14 +112,21 @@ async function applyHealOperations(input, operations = []) {
       if (!best || distance < best.distance)
         best = { left: candidateLeft, top: candidateTop, distance };
     }
+    const suggested = operation.mode === "suggested";
     const donorLeft = best?.left ?? left;
     const donorTop = best?.top ?? top;
-    const patch = await sharp(base)
-      .extract({ left: donorLeft, top: donorTop, width: size, height: size })
+    const patchSource = sharp(base).extract({
+      left: suggested ? left : donorLeft,
+      top: suggested ? top : donorTop,
+      width: size,
+      height: size,
+    });
+    const patch = await (suggested ? patchSource.median(3) : patchSource)
       .png()
       .toBuffer();
+    const centerOpacity = suggested ? 0.42 : 1;
     const mask = Buffer.from(
-      `<svg width="${size}" height="${size}"><defs><radialGradient id="m"><stop offset="62%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><circle cx="${radius}" cy="${radius}" r="${radius}" fill="url(#m)"/></svg>`,
+      `<svg width="${size}" height="${size}"><defs><radialGradient id="m"><stop offset="45%" stop-color="white" stop-opacity="${centerOpacity}"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><circle cx="${radius}" cy="${radius}" r="${radius}" fill="url(#m)"/></svg>`,
     );
     const healedPatch = await sharp(patch)
       .ensureAlpha()

@@ -43,7 +43,13 @@ type Progress = {
   total: number;
   message: string;
 };
-type HealOperation = { x: number; y: number; radius: number };
+type HealOperation = {
+  x: number;
+  y: number;
+  radius: number;
+  mode?: "manual" | "suggested";
+  kind?: string;
+};
 type LocalAdjustment = HealOperation & { amount: number };
 type BlemishSuggestion = HealOperation & {
   confidence: number;
@@ -179,6 +185,7 @@ function App() {
   const [splitView, setSplitView] = useState(false);
   const [strength, setStrength] = useState(2);
   const [operations, setOperations] = useState(baseOperations);
+  const activeRetouchOperations = operations;
   const [saved, setSaved] = useState("");
   const [zoom, setZoom] = useState(0);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -278,7 +285,7 @@ function App() {
           ?.renderRetouchLevel({
             preview: selectedCurrent.preview,
             strength,
-            retouchOperations: operations,
+            retouchOperations: activeRetouchOperations,
           })
           .then((preview) => {
             if (!cancelled)
@@ -309,7 +316,7 @@ function App() {
         operations: manualHeals,
         localAdjustments: manualAdjustments,
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) => {
         if (!cancelled)
@@ -560,7 +567,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -670,7 +677,7 @@ function App() {
         operations: healOperations[current.path] || [],
         localAdjustments: adjustments,
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -699,7 +706,7 @@ function App() {
         operations: healOperations[current.path] || [],
         localAdjustments: adjustments,
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -760,7 +767,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -796,7 +803,13 @@ function App() {
     if (!current) return;
     const operations = [
       ...(healOperations[current.path] || []),
-      { x: suggestion.x, y: suggestion.y, radius: suggestion.radius },
+      {
+        x: suggestion.x,
+        y: suggestion.y,
+        radius: suggestion.radius,
+        mode: "suggested" as const,
+        kind: suggestion.kind,
+      },
     ];
     setHealOperations((existing) => ({
       ...existing,
@@ -815,7 +828,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -833,7 +846,13 @@ function App() {
     if (!accepted.length) return;
     const operations = [
       ...(healOperations[current.path] || []),
-      ...accepted.map(({ x, y, radius }) => ({ x, y, radius })),
+      ...accepted.map(({ x, y, radius, kind }) => ({
+        x,
+        y,
+        radius,
+        kind,
+        mode: "suggested" as const,
+      })),
     ];
     setHealOperations((existing) => ({
       ...existing,
@@ -852,7 +871,7 @@ function App() {
         operations,
         localAdjustments: localAdjustments[current.path] || [],
         strength,
-        retouchOperations: operations,
+        retouchOperations: activeRetouchOperations,
       })
       .then((preview) =>
         setHealedPreviews((existing) => ({
@@ -1188,6 +1207,20 @@ function App() {
               <div className="notice success">
                 <b>Export result</b>
                 <span>{exportResult}</span>
+                <div className="exportAgainActions">
+                  <button
+                    className="secondary"
+                    onClick={() => setStage("retouch")}
+                  >
+                    Back to retouch
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setStage("creative")}
+                  >
+                    Back to creative review
+                  </button>
+                </div>
               </div>
             )}
           </div>
