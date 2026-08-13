@@ -43,7 +43,11 @@ type Progress = {
   message: string;
 };
 type HealOperation = { x: number; y: number; radius: number };
-type BlemishSuggestion = HealOperation & { confidence: number; score: number };
+type BlemishSuggestion = HealOperation & {
+  confidence: number;
+  score: number;
+  kind: string;
+};
 declare global {
   interface Window {
     editor?: {
@@ -1072,6 +1076,21 @@ function App() {
                     Accept 82%+
                   </button>
                   <button
+                    disabled={
+                      !current ||
+                      !(blemishSuggestions[current.path] || []).length
+                    }
+                    onClick={() =>
+                      current &&
+                      setBlemishSuggestions((existing) => ({
+                        ...existing,
+                        [current.path]: [],
+                      }))
+                    }
+                  >
+                    Dismiss suggestions
+                  </button>
+                  <button
                     onClick={() => setZoom(100)}
                     className={zoom === 100 ? "selected" : ""}
                   >
@@ -1162,13 +1181,15 @@ function App() {
                                   left: `${suggestion.x * 100}%`,
                                   top: `${suggestion.y * 100}%`,
                                 }}
-                                title={`${suggestion.confidence}% confidence — click to heal`}
+                                title={`${suggestion.kind} · ${suggestion.confidence}% heuristic confidence — click to heal`}
                                 onPointerDown={(event) =>
                                   event.stopPropagation()
                                 }
                                 onClick={() => applySuggestion(suggestion)}
                               >
-                                <span>{suggestion.confidence}%</span>
+                                <span>
+                                  {suggestion.kind} · {suggestion.confidence}%
+                                </span>
                               </button>
                             ),
                           )}
@@ -1196,7 +1217,7 @@ function App() {
                         (blemishSuggestions[current.path] || []).length > 0 && (
                           <div className="suggestionLegend">
                             {blemishSuggestions[current.path].length}{" "}
-                            suggestions · Click a marker to accept
+                            skin-region suggestions · Click a marker to accept
                           </div>
                         )}
                     </div>

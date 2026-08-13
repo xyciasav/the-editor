@@ -146,27 +146,31 @@ async function analyzeBlemishes(input) {
   const { width, height, channels } = info;
   const candidates = [];
   const pixel = (x, y, channel) => data[(y * width + x) * channels + channel];
+  const isSkin = (r, g, b) => {
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    return (
+      luminance > 75 &&
+      luminance < 225 &&
+      r > 92 &&
+      g > 50 &&
+      b > 35 &&
+      r > g * 1.06 &&
+      r > b * 1.12 &&
+      r - Math.min(g, b) > 15 &&
+      Math.max(r, g, b) - Math.min(r, g, b) < 125
+    );
+  };
   for (let y = 8; y < height - 8; y += 2)
     for (let x = 8; x < width - 8; x += 2) {
       const r = pixel(x, y, 0),
         g = pixel(x, y, 1),
         b = pixel(x, y, 2);
-      const max = Math.max(r, g, b),
-        min = Math.min(r, g, b);
-      const skinLike =
-        r > 70 &&
-        g > 35 &&
-        b > 20 &&
-        r > g &&
-        r > b &&
-        max - min > 12 &&
-        Math.abs(r - g) > 8;
-      if (!skinLike) continue;
+      if (!isSkin(r, g, b)) continue;
       let rr = 0,
         gg = 0,
         bb = 0,
         count = 0;
-      for (const [dx, dy] of [
+      const surrounding = [
         [-7, 0],
         [7, 0],
         [0, -7],
@@ -175,17 +179,36 @@ async function analyzeBlemishes(input) {
         [5, -5],
         [-5, 5],
         [5, 5],
-      ]) {
-        rr += pixel(x + dx, y + dy, 0);
-        gg += pixel(x + dx, y + dy, 1);
-        bb += pixel(x + dx, y + dy, 2);
+      ];
+      let skinNeighbors = 0,
+        minLum = 255,
+        maxLum = 0;
+      for (const [dx, dy] of surrounding) {
+        const nr = pixel(x + dx, y + dy, 0),
+          ng = pixel(x + dx, y + dy, 1),
+          nb = pixel(x + dx, y + dy, 2);
+        rr += nr;
+        gg += ng;
+        bb += nb;
+        if (isSkin(nr, ng, nb)) skinNeighbors++;
+        const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+        minLum = Math.min(minLum, lum);
+        maxLum = Math.max(maxLum, lum);
         count++;
       }
+      if (skinNeighbors < 7 || maxLum - minLum > 48) continue;
       const redExcess =
         r - rr / count - 0.45 * (g - gg / count + (b - bb / count));
       const darkness = ((rr + gg + bb) / count - (r + g + b)) / 3;
-      const score = Math.max(redExcess * 1.25, darkness);
-      if (score > 18) candidates.push({ x: x / width, y: y / height, score });
+      const rednessScore = redExcess * 1.1;
+      const score = Math.max(rednessScore, darkness);
+      if (score > 25)
+        candidates.push({
+          x: x / width,
+          y: y / height,
+          score,
+          kind: rednessScore >= darkness ? "Localized redness" : "Dark spot",
+        });
     }
   candidates.sort((a, b) => b.score - a.score);
   const selected = [];
@@ -200,11 +223,11 @@ async function analyzeBlemishes(input) {
     selected.push({
       ...candidate,
       confidence: Math.round(
-        Math.max(55, Math.min(96, 55 + candidate.score * 1.25)),
+        Math.max(55, Math.min(91, 55 + (candidate.score - 25) * 1.3)),
       ),
       radius: 0.014,
     });
-    if (selected.length >= 24) break;
+    if (selected.length >= 10) break;
   }
   return selected;
 }
