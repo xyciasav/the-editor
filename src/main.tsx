@@ -42,6 +42,7 @@ type Progress = {
   total: number;
   message: string;
 };
+type HealOperation = { x: number; y: number; radius: number };
 declare global {
   interface Window {
     editor?: {
@@ -53,6 +54,10 @@ declare global {
         files: Photo[];
       }): Promise<CreatedShoot>;
       saveRetouchPlan(plan: unknown): Promise<{ path: string }>;
+      healPreview(payload: {
+        preview: string;
+        operations: HealOperation[];
+      }): Promise<string>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
       chooseExportFolder(): Promise<string | null>;
       startExport(payload: unknown): Promise<{
@@ -155,7 +160,17 @@ function App() {
     new Set(),
   );
   const [copiedEdit, setCopiedEdit] = useState<CreativeEdit | null>(null);
+  const [healMode, setHealMode] = useState(false);
+  const [healRadius, setHealRadius] = useState(0.018);
+  const [healOperations, setHealOperations] = useState<
+    Record<string, HealOperation[]>
+  >({});
+  const [healedPreviews, setHealedPreviews] = useState<Record<string, string>>(
+    {},
+  );
+  const [healing, setHealing] = useState(false);
   const photoViewRef = useRef<HTMLDivElement>(null);
+  const healImageRef = useRef<HTMLImageElement>(null);
   const cropViewRef = useRef<HTMLDivElement>(null);
   const cropDragRef = useRef<{
     x: number;
@@ -209,6 +224,8 @@ function App() {
       setSaved("");
       setCreativeEdits({});
       setCreativeSelection(new Set());
+      setHealOperations({});
+      setHealedPreviews({});
       setError("");
       setStage("shoots");
     }
@@ -246,6 +263,7 @@ function App() {
       projectDir: created.projectDir,
       strength,
       operations,
+      healOperations,
     });
     setSaved(`Saved locally · ${result.path}`);
   };
@@ -275,6 +293,7 @@ function App() {
         watermarkOpacity,
         tiledWatermark,
         creativeEdits,
+        healOperations,
       });
       setExportResult(
         `${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
@@ -315,6 +334,64 @@ function App() {
   };
   const stopPan = () => {
     dragRef.current = null;
+  };
+  const addHeal = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!healMode || !current || !healImageRef.current) return false;
+    const rect = healImageRef.current.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    )
+      return true;
+    const operation = {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+      radius: healRadius,
+    };
+    const operations = [...(healOperations[current.path] || []), operation];
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
+    setHealing(true);
+    window.editor
+      ?.healPreview({ preview: current.preview, operations })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .finally(() => setHealing(false));
+    return true;
+  };
+  const undoHeal = () => {
+    if (!current) return;
+    const operations = (healOperations[current.path] || []).slice(0, -1);
+    setHealOperations((existing) => ({
+      ...existing,
+      [current.path]: operations,
+    }));
+    if (!operations.length) {
+      setHealedPreviews((existing) => {
+        const next = { ...existing };
+        delete next[current.path];
+        return next;
+      });
+      return;
+    }
+    setHealing(true);
+    window.editor
+      ?.healPreview({ preview: current.preview, operations })
+      .then((preview) =>
+        setHealedPreviews((existing) => ({
+          ...existing,
+          [current.path]: preview,
+        })),
+      )
+      .finally(() => setHealing(false));
   };
   const current = created?.previews[selected];
   const currentEdit = current
@@ -833,10 +910,38 @@ function App() {
               <div className="canvasPanel">
                 <div className="zoomBar">
                   <button
+                    className={healMode ? "selected healActive" : ""}
+                    onClick={() => {
+                      setHealMode((value) => !value);
+                      setSplitView(false);
+                      setCompare("Retouched");
+                    }}
+                  >
+                    Heal brush
+                  </button>
+                  <button
                     onClick={() => setZoom(0)}
                     className={zoom === 0 ? "selected" : ""}
                   >
                     Fit
+                  </button>
+                  <label className="brushSize">
+                    Brush{" "}
+                    <input
+                      type="range"
+                      min="8"
+                      max="60"
+                      value={Math.round(healRadius * 1000)}
+                      onChange={(event) =>
+                        setHealRadius(Number(event.target.value) / 1000)
+                      }
+                    />
+                  </label>
+                  <button
+                    disabled={!current || !healOperations[current.path]?.length}
+                    onClick={undoHeal}
+                  >
+                    Undo heal
                   </button>
                   <button
                     onClick={() => setZoom(100)}
@@ -866,7 +971,9 @@ function App() {
                   <>
                     <div
                       ref={photoViewRef}
-                      onPointerDown={startPan}
+                      onPointerDown={(event) => {
+                        if (!addHeal(event)) startPan(event);
+                      }}
                       onPointerMove={movePan}
                       onPointerUp={stopPan}
                       onPointerCancel={stopPan}
@@ -894,6 +1001,7 @@ function App() {
                         </div>
                       ) : (
                         <img
+                          ref={healImageRef}
                           draggable={false}
                           style={{
                             ...(zoom ? { width: `${zoom}%` } : {}),
@@ -904,20 +1012,30 @@ function App() {
                                   ? editedFilter
                                   : retouchFilter,
                           }}
-                          src={current.preview}
+                          src={
+                            compare === "Retouched"
+                              ? healedPreviews[current.path] || current.preview
+                              : current.preview
+                          }
                           alt={current.name}
                         />
                       )}{" "}
                       {compare === "Retouched" && !splitView && (
                         <span className="previewBadge">
-                          Live simulation · Level {strength}
+                          {healing
+                            ? "Healing…"
+                            : `${healOperations[current.path]?.length || 0} healed spot${(healOperations[current.path]?.length || 0) === 1 ? "" : "s"}`}
                         </span>
                       )}
                     </div>
                     <div className="photoMeta">
                       <b>{current.name}</b>
                       <span>
-                        {zoom ? "Drag photo to pan · " : ""}
+                        {healMode
+                          ? "Click a blemish to heal · "
+                          : zoom
+                            ? "Drag photo to pan · "
+                            : ""}
                         {selected + 1} of {created.previews.length}
                       </span>
                     </div>
@@ -944,12 +1062,13 @@ function App() {
                   Level 2 is recommended. Level 4 always requires explicit
                   selection and approval.
                 </p>
-                <div className="retouchEngineStatus">
-                  <b>Pixel retouch engine not connected</b>
+                <div className="retouchEngineStatus ready">
+                  <b>Manual blemish healing available</b>
                   <span>
-                    Flyaways, healing, skin masks, and under-eye corrections are
-                    not being applied yet. The preview below only simulates
-                    tonal intensity.
+                    Choose Heal brush above, adjust its size, then click
+                    temporary blemishes. Repairs are stored per photo and
+                    applied during export. Automatic detection, flyaways, skin
+                    masks, and under-eye corrections remain pending.
                   </span>
                 </div>
                 <div className="operationHead">

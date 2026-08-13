@@ -47,6 +47,54 @@ function darktablePath(filePath) {
   return filePath.replace(/\\/g, "/");
 }
 
+async function applyHealOperations(input, operations = []) {
+  let image = sharp(input);
+  const metadata = await image.metadata();
+  const width = metadata.width || 1,
+    height = metadata.height || 1;
+  for (const operation of operations) {
+    const radius = Math.max(
+      3,
+      Math.round(operation.radius * Math.min(width, height)),
+    );
+    const cx = Math.round(operation.x * width),
+      cy = Math.round(operation.y * height);
+    const size = radius * 2;
+    const left = Math.max(0, Math.min(width - size, cx - radius));
+    const top = Math.max(0, Math.min(height - size, cy - radius));
+    const donorLeft = Math.max(
+      0,
+      Math.min(width - size, left + (left + size * 2 < width ? size : -size)),
+    );
+    const donorTop = Math.max(
+      0,
+      Math.min(
+        height - size,
+        top +
+          (top + size * 2 < height
+            ? Math.round(radius * 0.45)
+            : -Math.round(radius * 0.45)),
+      ),
+    );
+    const base = await image.toBuffer();
+    const patch = await sharp(base)
+      .extract({ left: donorLeft, top: donorTop, width: size, height: size })
+      .png()
+      .toBuffer();
+    const mask = Buffer.from(
+      `<svg width="${size}" height="${size}"><defs><radialGradient id="m"><stop offset="62%" stop-color="white"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><circle cx="${radius}" cy="${radius}" r="${radius}" fill="url(#m)"/></svg>`,
+    );
+    const healedPatch = await sharp(patch)
+      .joinChannel(await sharp(mask).extractChannel("alpha").toBuffer())
+      .png()
+      .toBuffer();
+    image = sharp(base).composite([
+      { input: healedPatch, left, top, blend: "over" },
+    ]);
+  }
+  return image.toBuffer();
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -232,13 +280,24 @@ ipcMain.handle("retouch:save", async (_event, payload) => {
     throw new Error("Invalid project location.");
   const retouchFile = path.join(payload.projectDir, "retouch-plan.json");
   const plan = {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
     strength: payload.strength,
     operations: payload.operations,
+    healOperations: payload.healOperations || {},
   };
   fs.writeFileSync(retouchFile, JSON.stringify(plan, null, 2));
   return { path: retouchFile, updatedAt: plan.updatedAt };
+});
+
+ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
+  const encoded = String(payload.preview || "").split(",")[1];
+  if (!encoded) throw new Error("Preview image is unavailable.");
+  const healed = await applyHealOperations(
+    Buffer.from(encoded, "base64"),
+    payload.operations || [],
+  );
+  return `data:image/jpeg;base64,${(await sharp(healed).jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
 });
 
 ipcMain.handle("watermark:choose", async () => {
@@ -325,7 +384,11 @@ ipcMain.handle("export:start", async (event, payload) => {
           `${result.stderr || result.stdout || "Darktable created no output."}`.trim(),
         );
       const masterPath = path.join(finalDir, `${base}.jpg`);
-      let master = sharp(developed);
+      const healedBuffer = await applyHealOperations(
+        developed,
+        payload.healOperations?.[photo.path] || [],
+      );
+      let master = sharp(healedBuffer);
       const sourceMeta = await master.metadata();
       if (creativeEdit.crop && creativeEdit.crop !== "Original") {
         const [aw, ah] = creativeEdit.crop.split(":").map(Number);

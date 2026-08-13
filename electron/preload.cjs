@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("editor", {
   getThumbnail: (filePath) => ipcRenderer.invoke("thumbnail:get", filePath),
   createShoot: (shoot) => ipcRenderer.invoke("shoot:create", shoot),
   saveRetouchPlan: (plan) => ipcRenderer.invoke("retouch:save", plan),
+  healPreview: (payload) => ipcRenderer.invoke("retouch:heal-preview", payload),
   chooseWatermark: () => ipcRenderer.invoke("watermark:choose"),
   chooseExportFolder: () => ipcRenderer.invoke("export:choose-folder"),
   startExport: (payload) => ipcRenderer.invoke("export:start", payload),

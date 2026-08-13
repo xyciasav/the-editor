@@ -1052,6 +1052,32 @@ aside {
 .retouchEngineStatus span {
   display: block;
 }
+.retouchEngineStatus.ready {
+  background: #19251b;
+  border-color: #52704f;
+  color: #b9d0b6;
+}
+.zoomBar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 42px;
+  padding: 5px;
+}
+.zoomBar .healActive {
+  background: #7f5a35;
+  color: #fff1dc;
+}
+.brushSize {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #9d978d;
+  font-size: 9px;
+}
+.brushSize input {
+  width: 80px;
+  accent-color: #c49b65;
+}
 .retouchEngineStatus b {
   font-size: 11px;
 }
