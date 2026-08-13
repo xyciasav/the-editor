@@ -273,14 +273,40 @@ function operationEnabled(operations, id, defaultValue = true) {
   return operation ? operation.enabled !== false : defaultValue;
 }
 
+function operationLevel(operations, id, defaultValue = 0) {
+  if (!Array.isArray(operations)) return defaultValue;
+  const operation = operations.find((item) => item?.id === id);
+  if (!operation || operation.enabled === false) return 0;
+  return Math.max(0, Math.min(4, Number(operation.level ?? defaultValue)));
+}
+
+async function applyDreamySoften(input, operations) {
+  const level = operationLevel(operations, "soften", 0);
+  if (!level) return sharp(input).toBuffer();
+  const opacity = [0, 0.07, 0.12, 0.19, 0.27][level];
+  const sigma = [0, 2.2, 3.2, 4.5, 6][level];
+  const glow = await sharp(input)
+    .blur(sigma)
+    .modulate({ brightness: 1.035 + level * 0.008, saturation: 0.98 })
+    .ensureAlpha()
+    .linear([1, 1, 1, opacity], [0, 0, 0, 0])
+    .png()
+    .toBuffer();
+  return sharp(input)
+    .composite([{ input: glow, blend: "over" }])
+    .png()
+    .toBuffer();
+}
+
 async function applyPortraitTone(input, strength = 0, operations) {
   const level = Math.max(0, Math.min(4, Number(strength || 0)));
-  if (level < 2) return sharp(input).toBuffer();
+  const toneLevel = operationLevel(operations, "tone", level);
+  if (level < 2 && !toneLevel) return sharp(input).toBuffer();
   const { data, info } = await sharp(input)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const amount = level === 2 ? 0.12 : level === 3 ? 0.22 : 0.38;
+  const amount = [0, 0.07, 0.12, 0.22, 0.38][toneLevel];
   const subjectMask = Buffer.alloc(info.width * info.height);
   let subjectPixels = 0;
   for (let index = 0; index < data.length; index += info.channels) {
@@ -301,7 +327,7 @@ async function applyPortraitTone(input, strength = 0, operations) {
     if (!skin) continue;
     subjectMask[index / info.channels] = 255;
     subjectPixels++;
-    if (!operationEnabled(operations, "tone")) continue;
+    if (!toneLevel) continue;
     const excess = Math.max(0, r - (g * 1.18 + b * 0.18));
     const correction = Math.min(18, excess * amount);
     data[index] = Math.round(Math.max(0, r - correction));
@@ -310,9 +336,8 @@ async function applyPortraitTone(input, strength = 0, operations) {
   }
 
   const coverage = subjectPixels / (info.width * info.height);
-  const coreMidtoneLift = level === 2 ? 2 : level === 3 ? 4 : 7;
-  const coreHighlightControl =
-    level === 2 ? 0.008 : level === 3 ? 0.018 : 0.035;
+  const coreMidtoneLift = [0, 0, 2, 4, 7][level];
+  const coreHighlightControl = [0, 0, 0.008, 0.018, 0.035][level];
   for (let index = 0; index < data.length; index += info.channels) {
     const r = data[index],
       g = data[index + 1],
@@ -597,8 +622,9 @@ ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
     payload.strength || 0,
     payload.retouchOperations,
   );
+  const softened = await applyDreamySoften(toned, payload.retouchOperations);
   const adjusted = await applyLocalAdjustments(
-    toned,
+    softened,
     payload.localAdjustments || [],
   );
   const healed = await applyHealOperations(adjusted, payload.operations || []);
@@ -619,7 +645,8 @@ ipcMain.handle("retouch:render-level", async (_event, payload) => {
     payload.strength,
     payload.retouchOperations,
   );
-  return `data:image/jpeg;base64,${(await sharp(toned).jpeg({ quality: 91 }).toBuffer()).toString("base64")}`;
+  const softened = await applyDreamySoften(toned, payload.retouchOperations);
+  return `data:image/jpeg;base64,${(await sharp(softened).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer()).toString("base64")}`;
 });
 
 function watermarkLibrary() {
@@ -749,8 +776,12 @@ ipcMain.handle("export:start", async (event, payload) => {
         payload.retouchStrength || 0,
         payload.operations,
       );
-      const adjustedBuffer = await applyLocalAdjustments(
+      const softenedBuffer = await applyDreamySoften(
         tonedBuffer,
+        payload.operations,
+      );
+      const adjustedBuffer = await applyLocalAdjustments(
+        softenedBuffer,
         payload.localAdjustments?.[photo.path] || [],
       );
       const healedBuffer = await applyHealOperations(

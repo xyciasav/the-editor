@@ -21,6 +21,7 @@ type Operation = {
   detail: string;
   action: "Auto Retouch" | "Suggested" | "Review" | "Preserve";
   enabled: boolean;
+  level: number;
 };
 type CreativeEdit = {
   style: string;
@@ -100,7 +101,7 @@ const retouchPreviewKey = (
   strength: number,
   operations: Operation[],
 ) =>
-  `${photoPath}:${strength}:tone-${operations.find((item) => item.id === "tone")?.enabled !== false ? "on" : "off"}`;
+  `${photoPath}:${strength}:${operations.map((item) => `${item.id}-${item.enabled ? item.level : 0}`).join("|")}`;
 const baseOperations: Operation[] = [
   {
     id: "temporary",
@@ -108,6 +109,7 @@ const baseOperations: Operation[] = [
     detail: "Pimples, small scratches, temporary redness and sensor spots",
     action: "Auto Retouch",
     enabled: true,
+    level: 2,
   },
   {
     id: "under-eye",
@@ -115,6 +117,7 @@ const baseOperations: Operation[] = [
     detail: "Reduce shadows by 25%; retain natural facial structure",
     action: "Suggested",
     enabled: true,
+    level: 2,
   },
   {
     id: "tone",
@@ -122,6 +125,7 @@ const baseOperations: Operation[] = [
     detail: "Texture-aware correction; pores and natural texture preserved",
     action: "Suggested",
     enabled: true,
+    level: 2,
   },
   {
     id: "flyaway",
@@ -129,6 +133,7 @@ const baseOperations: Operation[] = [
     detail: "Only obvious hairs against simple backgrounds",
     action: "Review",
     enabled: false,
+    level: 1,
   },
   {
     id: "identity",
@@ -136,6 +141,7 @@ const baseOperations: Operation[] = [
     detail: "Identity-defining and uncertain features remain untouched",
     action: "Preserve",
     enabled: false,
+    level: 0,
   },
   {
     id: "teeth",
@@ -143,6 +149,15 @@ const baseOperations: Operation[] = [
     detail: "Optional mild brightness and yellow-cast reduction",
     action: "Review",
     enabled: false,
+    level: 1,
+  },
+  {
+    id: "soften",
+    label: "Dreamy soften",
+    detail: "Feather-soft glow blended over preserved original detail",
+    action: "Review",
+    enabled: false,
+    level: 2,
   },
 ];
 
@@ -376,11 +391,25 @@ function App() {
     setOperations((items) =>
       items.map((item) =>
         item.id === id && item.action !== "Preserve"
-          ? { ...item, enabled: !item.enabled }
+          ? {
+              ...item,
+              enabled: !item.enabled,
+              level: !item.enabled && item.level === 0 ? 2 : item.level,
+            }
           : item,
       ),
     );
-    if (id === "tone") setHealedPreviews({});
+    if (id === "tone" || id === "soften") setHealedPreviews({});
+  };
+  const setOperationLevel = (id: string, level: number) => {
+    setOperations((items) =>
+      items.map((item) =>
+        item.id === id
+          ? { ...item, level, enabled: level > 0 && item.action !== "Preserve" }
+          : item,
+      ),
+    );
+    if (id === "tone" || id === "soften") setHealedPreviews({});
   };
   const savePlan = async () => {
     if (!created || !window.editor) return;
@@ -1669,13 +1698,13 @@ function App() {
                 )}
               </div>
               <div className="controls">
-                <p className="eyebrow">RETOUCH STRENGTH</p>
+                <p className="eyebrow">CORE FINISH</p>
                 <div className="strengthName">
                   <strong>Level {strength}</strong>
                   <span>{strengthNames[strength]}</span>
                 </div>
                 <input
-                  aria-label="Retouch strength"
+                  aria-label="Core finish strength"
                   type="range"
                   min="0"
                   max="4"
@@ -1683,8 +1712,8 @@ function App() {
                   onChange={(e) => setStrength(Number(e.target.value))}
                 />
                 <p className="hint">
-                  Level 2 is recommended. Level 4 always requires explicit
-                  selection and approval.
+                  Controls the subject-aware foundation. Each operation below
+                  has its own independent 0–4 strength.
                 </p>
                 <div className="retouchEngineStatus ready">
                   <b>Manual blemish healing available</b>
@@ -1705,34 +1734,65 @@ function App() {
                   </span>
                 </div>
                 <div className="operations">
-                  {operations.map((op) => (
-                    <button
-                      key={op.id}
-                      className={`operation ${op.id === "tone" ? "engineActive" : "pending"} ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
-                      onClick={() => toggleOperation(op.id)}
-                      title={
-                        op.id === "tone"
-                          ? "This control changes the live preview and final export"
-                          : "Saved as intent; this engine component is not connected yet"
-                      }
-                    >
-                      <span className="check">
-                        {op.action === "Preserve" ? "◆" : op.enabled ? "✓" : ""}
-                      </span>
-                      <span>
-                        <b>{op.label}</b>
-                        <small>{op.detail}</small>
-                      </span>
-                      <em>{op.action}</em>
-                      <strong className="pendingBadge">
-                        {op.id === "tone"
-                          ? op.enabled
-                            ? "Engine active"
-                            : "Engine off"
-                          : "Engine pending"}
-                      </strong>
-                    </button>
-                  ))}
+                  {operations.map((op) => {
+                    const wired = op.id === "tone" || op.id === "soften";
+                    return (
+                      <div
+                        key={op.id}
+                        role="button"
+                        tabIndex={op.action === "Preserve" ? -1 : 0}
+                        className={`operation ${wired ? "engineActive" : "pending"} ${op.enabled ? "on" : ""} ${op.action === "Preserve" ? "locked" : ""}`}
+                        onClick={() => toggleOperation(op.id)}
+                        title={
+                          wired
+                            ? "This control changes the live preview and final export"
+                            : "Saved as intent; this engine component is not connected yet"
+                        }
+                      >
+                        <span className="check">
+                          {op.action === "Preserve"
+                            ? "◆"
+                            : op.enabled
+                              ? "✓"
+                              : ""}
+                        </span>
+                        <span>
+                          <b>{op.label}</b>
+                          <small>{op.detail}</small>
+                        </span>
+                        <em>{op.action}</em>
+                        <label
+                          className="operationLevel"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <span>0</span>
+                          <input
+                            aria-label={`${op.label} strength`}
+                            type="range"
+                            min="0"
+                            max="4"
+                            value={op.enabled ? op.level : 0}
+                            disabled={op.action === "Preserve"}
+                            onChange={(event) =>
+                              setOperationLevel(
+                                op.id,
+                                Number(event.target.value),
+                              )
+                            }
+                          />
+                          <span>4</span>
+                          <b>Level {op.enabled ? op.level : 0}</b>
+                        </label>
+                        <strong className="pendingBadge">
+                          {wired
+                            ? op.enabled
+                              ? "Engine active"
+                              : "Engine off"
+                            : "Engine pending"}
+                        </strong>
+                      </div>
+                    );
+                  })}
                 </div>
                 <button className="primary save" onClick={savePlan}>
                   Approve & save retouch plan

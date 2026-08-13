@@ -720,6 +720,26 @@ aside {
   text-transform: uppercase;
   letter-spacing: 0.7px;
 }
+.operationLevel {
+  grid-column: 2/4;
+  display: grid;
+  grid-template-columns: 12px minmax(80px, 1fr) 12px 50px;
+  align-items: center;
+  gap: 6px;
+  color: #77746d;
+  font-size: 8px;
+  cursor: default;
+}
+.operationLevel input {
+  width: 100%;
+  accent-color: #c99d63;
+}
+.operationLevel b {
+  color: #b99362;
+  font-size: 8px;
+  text-align: right;
+  white-space: nowrap;
+}
 .save {
   width: 100%;
   margin-top: 16px;
