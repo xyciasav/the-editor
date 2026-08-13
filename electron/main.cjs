@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const DARKTABLE = "C:\\Program Files\\darktable\\bin\\darktable-cli.exe";
 const PHOTO_EXTENSIONS = new Set([".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".raf", ".rw2", ".jpg", ".jpeg", ".png", ".tif", ".tiff"]);
@@ -50,7 +51,8 @@ ipcMain.handle("shoot:choose", async () => {
 ipcMain.handle("shoot:create", async (_event, shoot) => {
   if (!fs.existsSync(DARKTABLE)) throw new Error("Darktable CLI was not found.");
   if (!shoot?.folder || !Array.isArray(shoot.files)) throw new Error("The selected shoot is invalid.");
-  const projectKey = Buffer.from(shoot.folder).toString("base64url").slice(0, 32);
+  const normalizedSource = path.resolve(shoot.folder).toLowerCase();
+  const projectKey = crypto.createHash("sha256").update(normalizedSource).digest("hex").slice(0, 32);
   const projectDir = path.join(app.getPath("userData"), "shoots", projectKey);
   const previewDir = path.join(projectDir, "previews");
   const stagingDir = path.join(projectDir, "staging");
