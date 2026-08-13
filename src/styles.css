@@ -1075,6 +1075,46 @@ aside {
 .creativeSummary span {
   display: block;
 }
+.editTools {
+  display: flex;
+  gap: 6px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #302e29;
+}
+.editTools button {
+  flex: 1;
+  border: 1px solid #484238;
+  background: #221f1a;
+  color: #b5aea3;
+  padding: 8px 5px;
+  font-size: 10px;
+}
+.editTools button:disabled {
+  opacity: 0.35;
+}
+.selectionHint {
+  font-size: 9px;
+  color: #89857d;
+  margin: 9px 0 0;
+}
+.filmstrip button.multiSelected {
+  box-shadow: 0 0 0 2px #68a5a0 inset;
+}
+.filmstrip em {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #111d;
+  color: #d8b17a;
+  padding: 2px 4px;
+  font-size: 7px;
+  font-style: normal;
+}
 .creativeSummary span {
   font-size: 10px;
   color: #85817a;

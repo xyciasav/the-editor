@@ -282,6 +282,11 @@ ipcMain.handle("export:start", async (event, payload) => {
   fs.mkdirSync(workDir, { recursive: true });
   const failures = [];
   for (const [index, photo] of payload.shoot.files.entries()) {
+    const creativeEdit = payload.creativeEdits?.[photo.path] || {
+      style: "Natural",
+      crop: "Original",
+      vignette: 0,
+    };
     const base = path.parse(photo.name).name;
     const staged = path.join(
       workDir,
@@ -322,8 +327,8 @@ ipcMain.handle("export:start", async (event, payload) => {
       const masterPath = path.join(finalDir, `${base}.jpg`);
       let master = sharp(developed);
       const sourceMeta = await master.metadata();
-      if (payload.cropAspect && payload.cropAspect !== "Original") {
-        const [aw, ah] = payload.cropAspect.split(":").map(Number);
+      if (creativeEdit.crop && creativeEdit.crop !== "Original") {
+        const [aw, ah] = creativeEdit.crop.split(":").map(Number);
         const target = aw / ah;
         const current = (sourceMeta.width || 1) / (sourceMeta.height || 1);
         if (current > target) {
@@ -344,11 +349,10 @@ ipcMain.handle("export:start", async (event, payload) => {
           });
         }
       }
-      if (payload.creativeStyle === "Black & White")
-        master = master.grayscale();
-      if (payload.creativeStyle === "Sepia")
+      if (creativeEdit.style === "Black & White") master = master.grayscale();
+      if (creativeEdit.style === "Sepia")
         master = master.grayscale().tint({ r: 112, g: 84, b: 54 });
-      if (payload.creativeStyle === "High Contrast")
+      if (creativeEdit.style === "High Contrast")
         master = master.linear(1.28, -24).modulate({ saturation: 1.15 });
       await master
         .jpeg({ quality: 95, chromaSubsampling: "4:4:4" })
@@ -386,8 +390,8 @@ ipcMain.handle("export:start", async (event, payload) => {
         }
       } else
         overlays.push({ input: mark, gravity: "southeast", blend: "over" });
-      if (Number(payload.vignette || 0) > 0) {
-        const amount = Math.min(0.75, Number(payload.vignette) / 100);
+      if (Number(creativeEdit.vignette || 0) > 0) {
+        const amount = Math.min(0.75, Number(creativeEdit.vignette) / 100);
         const svg = `<svg width="${outputWidth}" height="${outputHeight}"><defs><radialGradient id="v"><stop offset="45%" stop-color="black" stop-opacity="0"/><stop offset="100%" stop-color="black" stop-opacity="${amount}"/></radialGradient></defs><rect width="100%" height="100%" fill="url(#v)"/></svg>`;
         overlays.unshift({
           input: Buffer.from(svg),

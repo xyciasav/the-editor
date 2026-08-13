@@ -22,6 +22,12 @@ type Operation = {
   action: "Auto Retouch" | "Suggested" | "Review" | "Preserve";
   enabled: boolean;
 };
+type CreativeEdit = { style: string; crop: string; vignette: number };
+const defaultCreativeEdit: CreativeEdit = {
+  style: "Natural",
+  crop: "Original",
+  vignette: 0,
+};
 type Progress = {
   kind: string;
   current: number;
@@ -134,9 +140,13 @@ function App() {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [watermarkOpacity, setWatermarkOpacity] = useState(18);
   const [tiledWatermark, setTiledWatermark] = useState(true);
-  const [creativeStyle, setCreativeStyle] = useState("Natural");
-  const [cropAspect, setCropAspect] = useState("Original");
-  const [vignette, setVignette] = useState(0);
+  const [creativeEdits, setCreativeEdits] = useState<
+    Record<string, CreativeEdit>
+  >({});
+  const [creativeSelection, setCreativeSelection] = useState<Set<string>>(
+    new Set(),
+  );
+  const [copiedEdit, setCopiedEdit] = useState<CreativeEdit | null>(null);
   const photoViewRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     x: number;
@@ -182,6 +192,8 @@ function App() {
       setZoom(0);
       setSplitView(false);
       setSaved("");
+      setCreativeEdits({});
+      setCreativeSelection(new Set());
       setError("");
       setStage("shoots");
     }
@@ -247,9 +259,7 @@ function App() {
         outputFolder,
         watermarkOpacity,
         tiledWatermark,
-        creativeStyle,
-        cropAspect,
-        vignette,
+        creativeEdits,
       });
       setExportResult(
         `${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
@@ -292,6 +302,41 @@ function App() {
     dragRef.current = null;
   };
   const current = created?.previews[selected];
+  const currentEdit = current
+    ? creativeEdits[current.path] || defaultCreativeEdit
+    : defaultCreativeEdit;
+  const updateCreative = (change: Partial<CreativeEdit>) => {
+    if (!created || !current) return;
+    const targets = creativeSelection.size
+      ? creativeSelection
+      : new Set([current.path]);
+    setCreativeEdits((existing) => {
+      const next = { ...existing };
+      for (const target of targets)
+        next[target] = {
+          ...(existing[target] || defaultCreativeEdit),
+          ...change,
+        };
+      return next;
+    });
+  };
+  const toggleCreativePhoto = (
+    photoPath: string,
+    index: number,
+    additive: boolean,
+  ) => {
+    setSelected(index);
+    setCreativeSelection((existing) => {
+      if (!additive) return new Set([photoPath]);
+      const next = new Set(existing);
+      next.has(photoPath) ? next.delete(photoPath) : next.add(photoPath);
+      return next;
+    });
+  };
+  const pasteCreative = () => {
+    if (copiedEdit) updateCreative(copiedEdit);
+  };
+  const resetCreative = () => updateCreative(defaultCreativeEdit);
   const activeCount = operations.filter(
     (operation) => operation.enabled,
   ).length;
@@ -301,17 +346,17 @@ function App() {
       : `brightness(${1 + strength * 0.012}) contrast(${1 + strength * 0.018}) saturate(${1 + strength * 0.014})`;
   const editedFilter = "brightness(1.025) contrast(1.035) saturate(1.025)";
   const creativeFilter =
-    creativeStyle === "Black & White"
+    currentEdit.style === "Black & White"
       ? "grayscale(1)"
-      : creativeStyle === "Sepia"
+      : currentEdit.style === "Sepia"
         ? "grayscale(1) sepia(.72) contrast(1.04)"
-        : creativeStyle === "High Contrast"
+        : currentEdit.style === "High Contrast"
           ? "contrast(1.28) saturate(1.15)"
           : "none";
   const cropRatio =
-    cropAspect === "Original"
+    currentEdit.crop === "Original"
       ? undefined
-      : cropAspect
+      : currentEdit.crop
           .split(":")
           .map(Number)
           .reduce((a, b) => a / b);
@@ -480,10 +525,15 @@ function App() {
             </div>
             <div className="creativeSummary">
               <div>
-                <p className="eyebrow">APPROVED CREATIVE EDIT</p>
-                <b>{creativeStyle}</b>
+                <p className="eyebrow">APPROVED CREATIVE EDITS</p>
+                <b>
+                  {Object.keys(creativeEdits).length} individualized ·{" "}
+                  {created.previews.length - Object.keys(creativeEdits).length}{" "}
+                  natural defaults
+                </b>
                 <span>
-                  {cropAspect} crop · {vignette}% vignette
+                  Each photograph will export using its assigned look, crop, and
+                  vignette.
                 </span>
               </div>
               <button
@@ -561,10 +611,10 @@ function App() {
                       style={{
                         filter: creativeFilter,
                         objectFit:
-                          cropAspect === "Original" ? "contain" : "cover",
+                          currentEdit.crop === "Original" ? "contain" : "cover",
                       }}
                     />
-                    <i style={{ opacity: vignette / 100 }} />
+                    <i style={{ opacity: currentEdit.vignette / 100 }} />
                   </div>
                 ) : (
                   <div className="placeholder">No preview available</div>
@@ -572,8 +622,8 @@ function App() {
                 <div className="photoMeta">
                   <b>{current?.name}</b>
                   <span>
-                    {selected + 1} of {created.previews.length} · {cropAspect}{" "}
-                    crop · {creativeStyle}
+                    {selected + 1} of {created.previews.length} ·{" "}
+                    {currentEdit.crop} crop · {currentEdit.style}
                   </span>
                 </div>
               </div>
@@ -584,8 +634,10 @@ function App() {
                     (style) => (
                       <button
                         key={style}
-                        className={creativeStyle === style ? "selected" : ""}
-                        onClick={() => setCreativeStyle(style)}
+                        className={
+                          currentEdit.style === style ? "selected" : ""
+                        }
+                        onClick={() => updateCreative({ style })}
                       >
                         <span
                           className={`lookSwatch look-${style.toLowerCase().replaceAll(" ", "-")}`}
@@ -599,8 +651,10 @@ function App() {
                   <label htmlFor="crop">Crop ratio</label>
                   <select
                     id="crop"
-                    value={cropAspect}
-                    onChange={(event) => setCropAspect(event.target.value)}
+                    value={currentEdit.crop}
+                    onChange={(event) =>
+                      updateCreative({ crop: event.target.value })
+                    }
                   >
                     {["Original", "1:1", "4:5", "3:2", "16:9"].map((aspect) => (
                       <option key={aspect}>{aspect}</option>
@@ -612,31 +666,54 @@ function App() {
                 </div>
                 <div className="creativeControl">
                   <label htmlFor="vignette">
-                    Vignette <strong>{vignette}%</strong>
+                    Vignette <strong>{currentEdit.vignette}%</strong>
                   </label>
                   <input
                     id="vignette"
                     type="range"
                     min="0"
                     max="60"
-                    value={vignette}
+                    value={currentEdit.vignette}
                     onChange={(event) =>
-                      setVignette(Number(event.target.value))
+                      updateCreative({ vignette: Number(event.target.value) })
                     }
                   />
                   <small>Darkens the edges to draw attention inward.</small>
                 </div>
+                <div className="editTools">
+                  <button onClick={() => setCopiedEdit(currentEdit)}>
+                    Copy edit
+                  </button>
+                  <button disabled={!copiedEdit} onClick={pasteCreative}>
+                    Paste to selected
+                  </button>
+                  <button onClick={resetCreative}>Reset selected</button>
+                </div>
+                <p className="selectionHint">
+                  {creativeSelection.size || 1} photo
+                  {(creativeSelection.size || 1) === 1 ? "" : "s"} targeted.
+                  Ctrl-click thumbnails to select multiple.
+                </p>
               </div>
             </div>
             <div className="filmstrip">
               {created.previews.map((photo, i) => (
                 <button
                   key={photo.path}
-                  className={i === selected ? "selected" : ""}
-                  onClick={() => setSelected(i)}
+                  className={`${i === selected ? "selected" : ""} ${creativeSelection.has(photo.path) ? "multiSelected" : ""}`}
+                  onClick={(event) =>
+                    toggleCreativePhoto(
+                      photo.path,
+                      i,
+                      event.ctrlKey || event.metaKey,
+                    )
+                  }
                 >
                   <img src={photo.preview} alt="" />
                   <span>{i + 1}</span>
+                  <em>
+                    {(creativeEdits[photo.path] || defaultCreativeEdit).style}
+                  </em>
                 </button>
               ))}
             </div>
