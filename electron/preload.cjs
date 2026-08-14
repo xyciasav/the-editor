@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("editor", {
     ipcRenderer.invoke("retouch:render-level", payload),
   chooseWatermark: () => ipcRenderer.invoke("watermark:choose"),
   listWatermarks: () => ipcRenderer.invoke("watermark:list"),
+  chooseWatermarkPhotos: () => ipcRenderer.invoke("watermark:choose-photos"),
+  quickWatermark: (payload) => ipcRenderer.invoke("watermark:quick-export", payload),
   chooseExportFolder: () => ipcRenderer.invoke("export:choose-folder"),
   startExport: (payload) => ipcRenderer.invoke("export:start", payload),
   onProgress: (callback) => {

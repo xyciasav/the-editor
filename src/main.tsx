@@ -83,6 +83,12 @@ declare global {
       }): Promise<string>;
       chooseWatermark(): Promise<{ path: string; preview: string } | null>;
       listWatermarks(): Promise<SavedWatermark[]>;
+      chooseWatermarkPhotos(): Promise<Photo[]>;
+      quickWatermark(payload: unknown): Promise<{
+        completed: number;
+        failures: { name: string; message: string }[];
+        outputFolder: string;
+      }>;
       chooseExportFolder(): Promise<string | null>;
       startExport(payload: unknown): Promise<{
         completed: number;
@@ -176,7 +182,7 @@ function App() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [stage, setStage] = useState<
-    "shoots" | "retouch" | "creative" | "export"
+    "shoots" | "retouch" | "creative" | "watermark" | "export"
   >("shoots");
   const [selected, setSelected] = useState(0);
   const [compare, setCompare] = useState<"Original" | "Edited" | "Retouched">(
@@ -204,6 +210,9 @@ function App() {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [watermarkOpacity, setWatermarkOpacity] = useState(18);
   const [tiledWatermark, setTiledWatermark] = useState(true);
+  const [quickPhotos, setQuickPhotos] = useState<Photo[]>([]);
+  const [quickThumbnails, setQuickThumbnails] = useState<Record<string, string>>({});
+  const [quickResult, setQuickResult] = useState("");
   const [creativeEdits, setCreativeEdits] = useState<
     Record<string, CreativeEdit>
   >({});
@@ -476,6 +485,37 @@ function App() {
   const chooseOutput = async () => {
     const value = await window.editor?.chooseExportFolder();
     if (value) setOutputFolder(value);
+  };
+  const chooseQuickPhotos = async () => {
+    const files = (await window.editor?.chooseWatermarkPhotos()) || [];
+    if (!files.length) return;
+    setQuickPhotos(files);
+    setQuickResult("");
+    const previews = await Promise.all(
+      files.map(async (photo) => [photo.path, await window.editor?.getThumbnail(photo.path)] as const),
+    );
+    setQuickThumbnails(Object.fromEntries(previews.filter((item) => item[1])) as Record<string, string>);
+  };
+  const startQuickWatermark = async () => {
+    if (!quickPhotos.length || !watermark || !outputFolder || !window.editor) return;
+    setExporting(true);
+    setQuickResult("");
+    try {
+      const result = await window.editor.quickWatermark({
+        files: quickPhotos,
+        watermark,
+        outputFolder,
+        watermarkOpacity,
+        tiledWatermark,
+      });
+      setQuickResult(
+        `${result.completed} watermarked · Saved to ${result.outputFolder}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
+      );
+    } catch (reason) {
+      setQuickResult(reason instanceof Error ? reason.message : "Watermark export failed.");
+    } finally {
+      setExporting(false);
+    }
   };
   const startExport = async () => {
     if (!created || !shoot || !watermark || !outputFolder || !window.editor)
@@ -966,7 +1006,7 @@ function App() {
       : currentEdit.style === "Sepia"
         ? "grayscale(1) sepia(.72) contrast(1.04)"
         : currentEdit.style === "Studio Punch"
-          ? "brightness(1.01) contrast(1.16) saturate(1.08)"
+          ? "brightness(1.01) contrast(1.13) saturate(1.04)"
         : currentEdit.style === "High Contrast"
           ? "contrast(1.28) saturate(1.15)"
           : "none";
@@ -1009,7 +1049,10 @@ function App() {
           >
             ◫ <span>Editing profiles</span>
           </button>
-          <button>
+          <button
+            className={stage === "watermark" ? "active" : ""}
+            onClick={() => setStage("watermark")}
+          >
             ◇ <span>Watermarks</span>
           </button>
           <button
@@ -1037,7 +1080,99 @@ function App() {
         </div>
       </aside>
       <section className="content">
-        {stage === "export" && created ? (
+        {stage === "watermark" ? (
+          <div className="exportStage quickWatermarkStage">
+            <header>
+              <div>
+                <p className="eyebrow">STANDALONE TOOL · ORIGINALS UNCHANGED</p>
+                <h1>Quick watermark</h1>
+              </div>
+              <button className="secondary" onClick={() => setStage("shoots")}>
+                ← Back to shoots
+              </button>
+            </header>
+            <div className="exportIntro">
+              <p className="eyebrow">ONE PHOTO OR A SMALL BATCH</p>
+              <h2>Protect finished photographs without creating a shoot.</h2>
+              <p>
+                Choose existing JPEG, PNG, TIFF, or WebP files. The Editor creates
+                new 2048 px watermarked JPEG copies and never changes the originals.
+              </p>
+            </div>
+            <div className="quickWatermarkGrid">
+              <article className="quickStep">
+                <span className="exportIcon">1</span>
+                <div>
+                  <h3>Choose photographs</h3>
+                  <p>{quickPhotos.length ? `${quickPhotos.length} selected` : "No photographs selected"}</p>
+                </div>
+                <button className="secondary" onClick={chooseQuickPhotos}>
+                  {quickPhotos.length ? "Choose different photos" : "Choose photos"}
+                </button>
+              </article>
+              {quickPhotos.length > 0 && (
+                <div className="quickPhotoStrip">
+                  {quickPhotos.map((photo) => (
+                    <div className="quickPhoto" key={photo.path}>
+                      {quickThumbnails[photo.path] ? (
+                        <img src={quickThumbnails[photo.path]} alt={photo.name} />
+                      ) : (
+                        <span>Loading…</span>
+                      )}
+                      <b>{photo.name}</b>
+                      <button
+                        aria-label={`Remove ${photo.name}`}
+                        onClick={() => setQuickPhotos((items) => items.filter((item) => item.path !== photo.path))}
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <article className="quickStep">
+                <span className="exportIcon">2</span>
+                <div>
+                  <h3>Choose saved watermark</h3>
+                  <p>{watermark ? "Watermark ready" : "Select or upload a watermark"}</p>
+                  {watermarkPreview && <img className="quickMarkPreview" src={watermarkPreview} alt="Selected watermark" />}
+                </div>
+                <div className="watermarkPicker">
+                  {watermarkLibrary.length > 0 && (
+                    <select value={watermark} onChange={(event) => selectWatermark(event.target.value)}>
+                      <option value="">Select saved watermark</option>
+                      {watermarkLibrary.map((item) => <option key={item.path} value={item.path}>{item.name}</option>)}
+                    </select>
+                  )}
+                  <button className="secondary" onClick={chooseWatermark}>Upload new watermark</button>
+                </div>
+              </article>
+            </div>
+            <div className="watermarkOptions">
+              <label>
+                <input type="checkbox" checked={tiledWatermark} onChange={(event) => setTiledWatermark(event.target.checked)} />
+                <span><b>Repeat across photograph</b><small>Turn off for one bottom-right mark.</small></span>
+              </label>
+              <label className="opacity">
+                <span><b>Watermark opacity</b><small>Adjust protection and visibility.</small></span>
+                <input type="range" min="5" max="40" value={watermarkOpacity} onChange={(event) => setWatermarkOpacity(Number(event.target.value))} />
+                <strong>{watermarkOpacity}%</strong>
+              </label>
+            </div>
+            <div className="destination">
+              <div><b>Save copies to</b><span>{outputFolder || "Choose an output folder."}</span></div>
+              <button className="secondary" onClick={chooseOutput}>{outputFolder ? "Change folder" : "Choose folder"}</button>
+            </div>
+            <div className="exportFooter">
+              <div>
+                <b>{quickPhotos.length} photograph{quickPhotos.length === 1 ? "" : "s"} queued</b>
+                <span>Files will be named with “-watermarked” and originals stay untouched.</span>
+              </div>
+              <button className="primary" onClick={startQuickWatermark} disabled={!quickPhotos.length || !watermark || !outputFolder || exporting}>
+                {exporting ? "Watermarking…" : "Create watermarked copies →"}
+              </button>
+            </div>
+            {quickResult && <div className="notice success"><b>Quick watermark result</b><span>{quickResult}</span></div>}
+          </div>
+        ) : stage === "export" && created ? (
           <div className="exportStage">
             <header>
               <div>

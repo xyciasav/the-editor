@@ -405,7 +405,7 @@ async function applyPortraitTone(input, strength = 0, operations) {
       Math.min(1, (190 - subjectMean) / 78),
     );
     const adaptiveNeed = sceneNeed * exposureHeadroom;
-    const faceLift = (level === 3 ? 0.16 : 0.23) * adaptiveNeed;
+    const faceLift = (level === 3 ? 0.18 : 0.23) * adaptiveNeed;
     const brightSuppression = (level === 3 ? 0.075 : 0.105) * sceneNeed;
     for (let index = 0; index < data.length; index += info.channels) {
       const pixelIndex = index / info.channels;
@@ -696,6 +696,22 @@ function savedWatermarks() {
 
 ipcMain.handle("watermark:list", () => savedWatermarks());
 
+ipcMain.handle("watermark:choose-photos", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Choose photographs to watermark",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "Photographs", extensions: ["jpg", "jpeg", "png", "tif", "tiff", "webp"] },
+    ],
+  });
+  if (result.canceled) return [];
+  return result.filePaths.map((filePath) => ({
+    name: path.basename(filePath),
+    path: filePath,
+    type: path.extname(filePath).slice(1).toUpperCase(),
+  }));
+});
+
 ipcMain.handle("watermark:choose", async () => {
   const result = await dialog.showOpenDialog({
     title: "Choose a watermark",
@@ -721,6 +737,64 @@ ipcMain.handle("watermark:choose", async () => {
   );
   if (!fs.existsSync(savedPath)) fs.copyFileSync(sourcePath, savedPath);
   return savedWatermarks().find((item) => item.path === savedPath);
+});
+
+ipcMain.handle("watermark:quick-export", async (event, payload) => {
+  if (!payload?.files?.length || !payload.outputFolder || !payload.watermark)
+    throw new Error("Photographs, output folder, and watermark are required.");
+  const failures = [];
+  for (const [index, photo] of payload.files.entries()) {
+    try {
+      event.sender.send("job:progress", {
+        kind: "watermark",
+        current: index + 1,
+        total: payload.files.length,
+        message: `Watermarking ${photo.name}`,
+      });
+      const source = sharp(photo.path).rotate();
+      const metadata = await source.metadata();
+      const longEdge = Math.max(metadata.width || 0, metadata.height || 0);
+      const scale = longEdge > 2048 ? 2048 / longEdge : 1;
+      const outputWidth = Math.max(1, Math.round((metadata.width || 2048) * scale));
+      const outputHeight = Math.max(1, Math.round((metadata.height || 2048) * scale));
+      const markWidth = Math.max(100, Math.round(outputWidth * 0.22));
+      const opacity = Math.max(0.05, Math.min(0.5, Number(payload.watermarkOpacity || 18) / 100));
+      const mark = await sharp(payload.watermark)
+        .resize({ width: markWidth })
+        .ensureAlpha()
+        .linear([1, 1, 1, opacity], [0, 0, 0, 0])
+        .png()
+        .toBuffer();
+      const markMeta = await sharp(mark).metadata();
+      const overlays = [];
+      if (payload.tiledWatermark !== false) {
+        const stepX = Math.max(markWidth + 40, Math.round(outputWidth * 0.34));
+        const stepY = Math.max((markMeta.height || 80) + 55, Math.round(outputHeight * 0.27));
+        for (let row = 0, top = 35; top < outputHeight; row++, top += stepY) {
+          const offset = row % 2 ? Math.round(stepX / 2) : 0;
+          for (let left = 25 - offset; left < outputWidth; left += stepX)
+            if (left >= 0) overlays.push({ input: mark, left, top, blend: "over" });
+        }
+      } else overlays.push({ input: mark, gravity: "southeast", blend: "over" });
+      const base = path.parse(photo.name).name;
+      await sharp(photo.path)
+        .rotate()
+        .resize({ width: outputWidth, height: outputHeight, fit: "inside", withoutEnlargement: true })
+        .composite(overlays)
+        .jpeg({ quality: 90, chromaSubsampling: "4:4:4" })
+        .toFile(path.join(payload.outputFolder, `${base}-watermarked.jpg`));
+    } catch (error) {
+      failures.push({ name: photo.name, message: error.message });
+    }
+  }
+  const completed = payload.files.length - failures.length;
+  event.sender.send("job:progress", {
+    kind: "complete",
+    current: completed,
+    total: payload.files.length,
+    message: `Watermark complete: ${completed} photographs`,
+  });
+  return { completed, failures, outputFolder: payload.outputFolder };
 });
 
 ipcMain.handle("export:choose-folder", async () => {
@@ -845,7 +919,7 @@ ipcMain.handle("export:start", async (event, payload) => {
       if (creativeEdit.style === "Sepia")
         master = master.grayscale().tint({ r: 112, g: 84, b: 54 });
       if (creativeEdit.style === "Studio Punch")
-        master = master.linear(1.16, -16).modulate({ saturation: 1.08 });
+        master = master.linear(1.13, -12).modulate({ saturation: 1.04 });
       if (creativeEdit.style === "High Contrast")
         master = master.linear(1.28, -24).modulate({ saturation: 1.15 });
       await master
