@@ -962,9 +962,11 @@ function App() {
   const editedFilter = "brightness(1.025) contrast(1.035) saturate(1.025)";
   const creativeFilter =
     currentEdit.style === "Black & White"
-      ? "grayscale(1)"
+      ? "grayscale(1) brightness(1.015) contrast(1.18)"
       : currentEdit.style === "Sepia"
         ? "grayscale(1) sepia(.72) contrast(1.04)"
+        : currentEdit.style === "Studio Punch"
+          ? "brightness(1.01) contrast(1.16) saturate(1.08)"
         : currentEdit.style === "High Contrast"
           ? "contrast(1.28) saturate(1.15)"
           : "none";
@@ -1295,8 +1297,13 @@ function App() {
               <div className="creativeControls">
                 <p className="eyebrow">LOOK</p>
                 <div className="lookGrid">
-                  {["Natural", "Black & White", "Sepia", "High Contrast"].map(
-                    (style) => (
+                  {[
+                    "Natural",
+                    "Black & White",
+                    "Studio Punch",
+                    "Sepia",
+                    "High Contrast",
+                  ].map((style) => (
                       <button
                         key={style}
                         className={
@@ -1309,8 +1316,7 @@ function App() {
                         />
                         <b>{style}</b>
                       </button>
-                    ),
-                  )}
+                  ))}
                 </div>
                 <div className="creativeControl">
                   <label htmlFor="crop">Crop ratio</label>

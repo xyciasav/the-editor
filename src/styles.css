@@ -1304,6 +1304,9 @@ aside {
 .look-sepia {
   filter: sepia(1);
 }
+.look-studio-punch {
+  filter: contrast(1.45) saturate(1.18);
+}
 .look-high-contrast {
   filter: contrast(1.8);
 }

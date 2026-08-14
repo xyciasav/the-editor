@@ -840,9 +840,12 @@ ipcMain.handle("export:start", async (event, payload) => {
           });
         }
       }
-      if (creativeEdit.style === "Black & White") master = master.grayscale();
+      if (creativeEdit.style === "Black & White")
+        master = master.grayscale().linear(1.18, -18);
       if (creativeEdit.style === "Sepia")
         master = master.grayscale().tint({ r: 112, g: 84, b: 54 });
+      if (creativeEdit.style === "Studio Punch")
+        master = master.linear(1.16, -16).modulate({ saturation: 1.08 });
       if (creativeEdit.style === "High Contrast")
         master = master.linear(1.28, -24).modulate({ saturation: 1.15 });
       await master
