@@ -258,6 +258,7 @@ function App() {
     lastX: number;
     lastY: number;
   } | null>(null);
+  const previewRequestRef = useRef(0);
   const photoViewRef = useRef<HTMLDivElement>(null);
   const healImageRef = useRef<HTMLImageElement>(null);
   const cropViewRef = useRef<HTMLDivElement>(null);
@@ -312,38 +313,64 @@ function App() {
     if (!selectedCurrent || !window.editor) return;
     const manualHeals = healOperations[selectedCurrent.path] || [];
     const manualAdjustments = localAdjustments[selectedCurrent.path] || [];
-    if (!manualHeals.length && !manualAdjustments.length) return;
-    let cancelled = false;
-    setHealedPreviews((existing) => {
-      const next = { ...existing };
-      delete next[selectedCurrent.path];
-      return next;
-    });
-    window.editor
-      .healPreview({
-        preview: selectedCurrent.preview,
-        operations: manualHeals,
-        localAdjustments: manualAdjustments,
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) => {
-        if (!cancelled)
-          setHealedPreviews((existing) => ({
-            ...existing,
-            [selectedCurrent.path]: preview,
-          }));
-      })
-      .catch((previewError) => {
-        if (!cancelled)
-          setError(
-            `Retouch preview failed: ${previewError instanceof Error ? previewError.message : String(previewError)}`,
-          );
+    const requestId = ++previewRequestRef.current;
+    if (!manualHeals.length && !manualAdjustments.length) {
+      setHealedPreviews((existing) => {
+        const next = { ...existing };
+        delete next[selectedCurrent.path];
+        return next;
       });
+      setHealing(false);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const renderLatest = () => {
+      if (cancelled || requestId !== previewRequestRef.current) return;
+      if (healStrokeRef.current || localStrokeRef.current) {
+        timer = setTimeout(renderLatest, 120);
+        return;
+      }
+      setHealing(true);
+      window.editor
+        ?.healPreview({
+          preview: selectedCurrent.preview,
+          operations: manualHeals,
+          localAdjustments: manualAdjustments,
+          strength,
+          retouchOperations: activeRetouchOperations,
+        })
+        .then((preview) => {
+          if (!cancelled && requestId === previewRequestRef.current)
+            setHealedPreviews((existing) => ({
+              ...existing,
+              [selectedCurrent.path]: preview,
+            }));
+        })
+        .catch((previewError) => {
+          if (!cancelled && requestId === previewRequestRef.current)
+            setError(
+              `Retouch preview failed: ${previewError instanceof Error ? previewError.message : String(previewError)}`,
+            );
+        })
+        .finally(() => {
+          if (!cancelled && requestId === previewRequestRef.current)
+            setHealing(false);
+        });
+    };
+    timer = setTimeout(renderLatest, 220);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [created, selected, strength, operations]);
+  }, [
+    created,
+    selected,
+    strength,
+    operations,
+    healOperations,
+    localAdjustments,
+  ]);
   useEffect(() => {
     if (!shoot || created || !window.editor) return;
     let cancelled = false;
@@ -595,32 +622,10 @@ function App() {
   };
   const renderHeals = (operations: HealOperation[]) => {
     if (!current) return;
-    const photoPath = current.path;
     setHealOperations((existing) => ({
       ...existing,
       [current.path]: operations,
     }));
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations,
-        localAdjustments: localAdjustments[current.path] || [],
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [photoPath]: preview,
-        })),
-      )
-      .catch((healError) => {
-        setError(
-          `Heal preview failed: ${healError instanceof Error ? healError.message : String(healError)}`,
-        );
-      })
-      .finally(() => setHealing(false));
   };
   const startHealStroke = (event: React.PointerEvent<HTMLDivElement>) => {
     const point = pointFromHealEvent(event);
@@ -708,29 +713,7 @@ function App() {
   };
   const endLocalStroke = () => {
     if (!localStrokeRef.current || !current) return;
-    const adjustments = [...localStrokeRef.current.operations];
     localStrokeRef.current = null;
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations: healOperations[current.path] || [],
-        localAdjustments: adjustments,
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [current.path]: preview,
-        })),
-      )
-      .catch((brushError) =>
-        setError(
-          `Local brush failed: ${brushError instanceof Error ? brushError.message : String(brushError)}`,
-        ),
-      )
-      .finally(() => setHealing(false));
   };
   const undoLocalAdjustment = () => {
     if (!current) return;
@@ -739,22 +722,6 @@ function App() {
       ...existing,
       [current.path]: adjustments,
     }));
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations: healOperations[current.path] || [],
-        localAdjustments: adjustments,
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [current.path]: preview,
-        })),
-      )
-      .finally(() => setHealing(false));
   };
   const trackBrush = (event: React.PointerEvent<HTMLDivElement>) => {
     if (
@@ -792,30 +759,6 @@ function App() {
       ...existing,
       [current.path]: operations,
     }));
-    if (!operations.length) {
-      setHealedPreviews((existing) => {
-        const next = { ...existing };
-        delete next[current.path];
-        return next;
-      });
-      return;
-    }
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations,
-        localAdjustments: localAdjustments[current.path] || [],
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [current.path]: preview,
-        })),
-      )
-      .finally(() => setHealing(false));
   };
   const analyzeCurrent = async () => {
     if (!current || !window.editor) return;
@@ -861,22 +804,6 @@ function App() {
         (item) => item !== suggestion,
       ),
     }));
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations,
-        localAdjustments: localAdjustments[current.path] || [],
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [current.path]: preview,
-        })),
-      )
-      .finally(() => setHealing(false));
   };
   const acceptHighConfidence = () => {
     if (!current) return;
@@ -904,22 +831,6 @@ function App() {
         (item) => item.confidence < 82,
       ),
     }));
-    setHealing(true);
-    window.editor
-      ?.healPreview({
-        preview: current.preview,
-        operations,
-        localAdjustments: localAdjustments[current.path] || [],
-        strength,
-        retouchOperations: activeRetouchOperations,
-      })
-      .then((preview) =>
-        setHealedPreviews((existing) => ({
-          ...existing,
-          [current.path]: preview,
-        })),
-      )
-      .finally(() => setHealing(false));
   };
   const current = created?.previews[selected];
   const currentEdit = current
