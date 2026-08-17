@@ -94,7 +94,9 @@ declare global {
         completed: number;
         failures: { name: string; message: string }[];
         finalDir: string;
+        neutralMasterDir: string;
         watermarkedDir: string;
+        recipePath: string;
       }>;
       onProgress(callback: (progress: Progress) => void): () => void;
     };
@@ -559,12 +561,13 @@ function App() {
         watermarkOpacity,
         tiledWatermark,
         creativeEdits,
+        operations,
         healOperations,
         localAdjustments,
         retouchStrength: strength,
       });
       setExportResult(
-        `${result.completed} exported · Masters: ${result.finalDir} · Watermarked: ${result.watermarkedDir}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
+        `${result.completed} exported · Color safety masters: ${result.neutralMasterDir} · Styled: ${result.finalDir} · Watermarked: ${result.watermarkedDir} · Recipe: ${result.recipePath}${result.failures.length ? ` · ${result.failures.length} failed` : ""}`,
       );
     } catch (reason) {
       setExportResult(
@@ -1087,7 +1090,7 @@ function App() {
           <div className="exportStage">
             <header>
               <div>
-                <p className="eyebrow">FINAL STEP · DUAL EXPORT</p>
+                <p className="eyebrow">FINAL STEP · NON-DESTRUCTIVE EXPORT</p>
                 <h1>Export setup</h1>
               </div>
               <button
@@ -1098,29 +1101,45 @@ function App() {
               </button>
             </header>
             <div className="exportIntro">
-              <p className="eyebrow">ONE BATCH · TWO DELIVERABLES</p>
-              <h2>Clean masters and client-ready copies.</h2>
+              <p className="eyebrow">ONE BATCH · COLOR SAFETY MASTER + DELIVERABLES</p>
+              <h2>Change the look later without redoing the retouch.</h2>
               <p>
-                Darktable development is applied to both outputs and originals
-                remain untouched. Retouch choices remain saved separately until
-                the pixel-retouching engine is connected.
+                Every photograph keeps a full-resolution neutral color master
+                before Black &amp; White or another creative look is applied. A recipe
+                file records the retouch, crop, and style assignments.
               </p>
             </div>
             <div className="exportCards">
               <article>
                 <span className="exportIcon">M</span>
                 <div>
-                  <p className="eyebrow">MASTERS</p>
-                  <h3>Full-resolution clean JPEGs</h3>
+                  <p className="eyebrow">COLOR SAFETY MASTERS</p>
+                  <h3>Retouched neutral-color JPEGs</h3>
                   <ul>
                     <li>JPEG quality 95</li>
                     <li>Full resolution</li>
-                    <li>sRGB output</li>
+                    <li>Retouching and crop retained</li>
+                    <li>No creative look burned in</li>
                     <li>No watermark</li>
                   </ul>
                   <code>
-                    {outputFolder ? `${outputFolder}\\final` : "final/"}
+                    {outputFolder ? `${outputFolder}\\masters-color` : "masters-color/"}
                   </code>
+                </div>
+                <span className="ready">Ready</span>
+              </article>
+              <article>
+                <span className="exportIcon">S</span>
+                <div>
+                  <p className="eyebrow">STYLED DELIVERABLES</p>
+                  <h3>Your currently approved looks</h3>
+                  <ul>
+                    <li>Per-photo Color, B&amp;W, or creative style</li>
+                    <li>JPEG quality 95</li>
+                    <li>Full resolution</li>
+                    <li>No watermark</li>
+                  </ul>
+                  <code>{outputFolder ? `${outputFolder}\\final` : "final/"}</code>
                 </div>
                 <span className="ready">Ready</span>
               </article>
@@ -1239,7 +1258,7 @@ function App() {
                 <b>{created.total} selected photographs queued</b>
                 <span>
                   {watermark && outputFolder
-                    ? "Ready for simultaneous master and protected-proof export."
+                    ? "Ready to preserve color masters and create styled deliverables and proofs."
                     : "Choose a watermark and destination to continue."}
                 </span>
               </div>
@@ -1248,7 +1267,7 @@ function App() {
                 onClick={startExport}
                 disabled={!watermark || !outputFolder || exporting}
               >
-                {exporting ? "Exporting…" : "Start dual export →"}
+                {exporting ? "Exporting…" : "Start protected export →"}
               </button>
             </div>
             {exportResult && (

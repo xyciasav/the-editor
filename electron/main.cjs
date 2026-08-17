@@ -813,11 +813,13 @@ ipcMain.handle("export:start", async (event, payload) => {
   )
     throw new Error("Shoot, output folder, and watermark are required.");
   const finalDir = path.join(payload.outputFolder, "final");
+  const neutralMasterDir = path.join(payload.outputFolder, "masters-color");
   const watermarkedDir = path.join(payload.outputFolder, "watermarked");
   const workDir = path.join(payload.projectDir, "export-work");
   const cacheDir = path.join(payload.projectDir, "darktable-cache");
   const configDir = path.join(payload.projectDir, "darktable-config");
   fs.mkdirSync(finalDir, { recursive: true });
+  fs.mkdirSync(neutralMasterDir, { recursive: true });
   fs.mkdirSync(watermarkedDir, { recursive: true });
   fs.mkdirSync(workDir, { recursive: true });
   const failures = [];
@@ -914,6 +916,11 @@ ipcMain.handle("export:start", async (event, payload) => {
           });
         }
       }
+      const neutralBuffer = await master
+        .jpeg({ quality: 95, chromaSubsampling: "4:4:4" })
+        .toBuffer();
+      fs.writeFileSync(path.join(neutralMasterDir, `${base}.jpg`), neutralBuffer);
+      master = sharp(neutralBuffer);
       if (creativeEdit.style === "Black & White")
         master = master.grayscale().linear(1.18, -18);
       if (creativeEdit.style === "Sepia")
@@ -988,9 +995,32 @@ ipcMain.handle("export:start", async (event, payload) => {
       }
     }
   }
+  const recipePath = path.join(payload.outputFolder, "the-editor-recipe.json");
+  fs.writeFileSync(
+    recipePath,
+    JSON.stringify(
+      {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        sourceFolder: payload.shoot.folder,
+        projectDir: payload.projectDir,
+        files: payload.shoot.files,
+        retouchStrength: payload.retouchStrength || 0,
+        operations: payload.operations || [],
+        healOperations: payload.healOperations || {},
+        localAdjustments: payload.localAdjustments || {},
+        creativeEdits: payload.creativeEdits || {},
+        outputs: { neutralMasterDir, finalDir, watermarkedDir },
+      },
+      null,
+      2,
+    ),
+  );
   const result = {
     finalDir,
+    neutralMasterDir,
     watermarkedDir,
+    recipePath,
     completed: payload.shoot.files.length - failures.length,
     failures,
   };
