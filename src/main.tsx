@@ -920,7 +920,7 @@ function App() {
       : currentEdit.style === "Sepia"
         ? "grayscale(1) sepia(.72) contrast(1.04)"
         : currentEdit.style === "Studio Punch"
-          ? "brightness(1.01) contrast(1.13) saturate(1.04)"
+          ? "brightness(1.01) contrast(1.1) saturate(1.04)"
         : currentEdit.style === "High Contrast"
           ? "contrast(1.28) saturate(1.15)"
           : "none";
@@ -1839,7 +1839,7 @@ function App() {
                 </div>
                 <div className="operations">
                   {operations.map((op) => {
-                    const wired = op.id === "tone" || op.id === "soften";
+                    const wired = op.id !== "identity";
                     return (
                       <div
                         key={op.id}

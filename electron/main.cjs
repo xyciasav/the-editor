@@ -274,6 +274,57 @@ async function analyzeBlemishes(input) {
   return selected;
 }
 
+async function applyAutomaticBlemishes(input, operations) {
+  const level = operationLevel(operations, "temporary", 0);
+  if (!level) return sharp(input).toBuffer();
+  const thresholds = [100, 91, 88, 84, 80];
+  const limits = [0, 1, 2, 4, 6];
+  const suggestions = (await analyzeBlemishes(input))
+    .filter((item) => item.confidence >= thresholds[level])
+    .slice(0, limits[level])
+    .map(({ x, y, radius, kind }) => ({
+      x,
+      y,
+      radius: Math.min(radius, 0.014 + level * 0.001),
+      kind,
+      mode: "suggested",
+    }));
+  return applyHealOperations(input, suggestions);
+}
+
+async function applyFlyawayCleanup(input, operations) {
+  const level = operationLevel(operations, "flyaway", 0);
+  if (!level) return sharp(input).toBuffer();
+  const source = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const median = await sharp(input)
+    .median(3)
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  const amount = [0, 0.2, 0.34, 0.5, 0.66][level];
+  for (let index = 0; index < source.data.length; index += source.info.channels) {
+    const r = source.data[index], g = source.data[index + 1], b = source.data[index + 2];
+    const mr = median[index], mg = median[index + 1], mb = median[index + 2];
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    const medianLuminance = 0.299 * mr + 0.587 * mg + 0.114 * mb;
+    const simpleBackground =
+      medianLuminance > 115 && Math.max(mr, mg, mb) - Math.min(mr, mg, mb) < 52;
+    if (!simpleBackground || medianLuminance - luminance < 24) continue;
+    source.data[index] = Math.round(r + (mr - r) * amount);
+    source.data[index + 1] = Math.round(g + (mg - g) * amount);
+    source.data[index + 2] = Math.round(b + (mb - b) * amount);
+  }
+  return sharp(source.data, { raw: source.info }).png().toBuffer();
+}
+
+async function applyAutomaticOperations(input, operations) {
+  const blemished = await applyAutomaticBlemishes(input, operations);
+  return applyFlyawayCleanup(blemished, operations);
+}
+
 function operationEnabled(operations, id, defaultValue = true) {
   if (!Array.isArray(operations)) return defaultValue;
   const operation = operations.find((item) => item?.id === id);
@@ -308,7 +359,10 @@ async function applyDreamySoften(input, operations) {
 async function applyPortraitTone(input, strength = 0, operations) {
   const level = Math.max(0, Math.min(4, Number(strength || 0)));
   const toneLevel = operationLevel(operations, "tone", level);
-  if (level < 2 && !toneLevel) return sharp(input).toBuffer();
+  const underEyeLevel = operationLevel(operations, "under-eye", 0);
+  const teethLevel = operationLevel(operations, "teeth", 0);
+  if (level < 2 && !toneLevel && !underEyeLevel && !teethLevel)
+    return sharp(input).toBuffer();
   const { data, info } = await sharp(input)
     .ensureAlpha()
     .raw()
@@ -343,6 +397,44 @@ async function applyPortraitTone(input, strength = 0, operations) {
   }
 
   const coverage = subjectPixels / (info.width * info.height);
+  if (underEyeLevel) {
+    const blurred = await sharp(input)
+      .blur(Math.max(4, Math.min(info.width, info.height) / 95))
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    const recovery = [0, 0.08, 0.14, 0.2, 0.27][underEyeLevel];
+    for (let index = 0; index < data.length; index += info.channels) {
+      if (!subjectMask[index / info.channels]) continue;
+      const luminance = 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
+      const local = 0.299 * blurred[index] + 0.587 * blurred[index + 1] + 0.114 * blurred[index + 2];
+      const shadowGap = local - luminance;
+      if (shadowGap < 9) continue;
+      const lift = Math.min(10, (shadowGap - 9) * recovery);
+      for (let channel = 0; channel < 3; channel++)
+        data[index + channel] = Math.round(Math.min(255, data[index + channel] + lift));
+    }
+  }
+  if (teethLevel) {
+    const brighten = [0, 0.025, 0.045, 0.07, 0.1][teethLevel];
+    const width = info.width;
+    for (let index = 0; index < data.length; index += info.channels) {
+      const r = data[index], g = data[index + 1], b = data[index + 2];
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (luminance < 105 || luminance > 238 || Math.max(r, g, b) - Math.min(r, g, b) > 62 || r < b + 3)
+        continue;
+      const pixel = index / info.channels;
+      const x = pixel % width, y = Math.floor(pixel / width);
+      const nearSkin = [[-8,0],[8,0],[0,-8],[0,8],[-12,0],[12,0]].some(([dx,dy]) => {
+        const nx = x + dx, ny = y + dy;
+        return nx >= 0 && nx < width && ny >= 0 && ny < info.height && subjectMask[ny * width + nx] > 0;
+      });
+      if (!nearSkin) continue;
+      data[index] = Math.round(Math.min(255, r * (1 + brighten * 0.45)));
+      data[index + 1] = Math.round(Math.min(255, g * (1 + brighten * 0.55)));
+      data[index + 2] = Math.round(Math.min(255, b * (1 + brighten)));
+    }
+  }
   const coreMidtoneLift = [0, 0, 2, 3, 4][level];
   const coreHighlightControl = [0, 0, 0.008, 0.018, 0.04][level];
   for (let index = 0; index < data.length; index += info.channels) {
@@ -642,7 +734,11 @@ ipcMain.handle("retouch:heal-preview", async (_event, payload) => {
     payload.strength || 0,
     payload.retouchOperations,
   );
-  const softened = await applyDreamySoften(toned, payload.retouchOperations);
+  const automatic = await applyAutomaticOperations(
+    toned,
+    payload.retouchOperations,
+  );
+  const softened = await applyDreamySoften(automatic, payload.retouchOperations);
   const adjusted = await applyLocalAdjustments(
     softened,
     payload.localAdjustments || [],
@@ -665,7 +761,11 @@ ipcMain.handle("retouch:render-level", async (_event, payload) => {
     payload.strength,
     payload.retouchOperations,
   );
-  const softened = await applyDreamySoften(toned, payload.retouchOperations);
+  const automatic = await applyAutomaticOperations(
+    toned,
+    payload.retouchOperations,
+  );
+  const softened = await applyDreamySoften(automatic, payload.retouchOperations);
   return `data:image/jpeg;base64,${(await sharp(softened).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer()).toString("base64")}`;
 });
 
@@ -872,8 +972,12 @@ ipcMain.handle("export:start", async (event, payload) => {
         payload.retouchStrength || 0,
         payload.operations,
       );
-      const softenedBuffer = await applyDreamySoften(
+      const automaticBuffer = await applyAutomaticOperations(
         tonedBuffer,
+        payload.operations,
+      );
+      const softenedBuffer = await applyDreamySoften(
+        automaticBuffer,
         payload.operations,
       );
       const adjustedBuffer = await applyLocalAdjustments(
@@ -926,7 +1030,7 @@ ipcMain.handle("export:start", async (event, payload) => {
       if (creativeEdit.style === "Sepia")
         master = master.grayscale().tint({ r: 112, g: 84, b: 54 });
       if (creativeEdit.style === "Studio Punch")
-        master = master.linear(1.13, -12).modulate({ saturation: 1.04 });
+        master = master.linear(1.1, -8).modulate({ saturation: 1.04 });
       if (creativeEdit.style === "High Contrast")
         master = master.linear(1.28, -24).modulate({ saturation: 1.15 });
       await master
