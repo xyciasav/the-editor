@@ -124,7 +124,9 @@ async function applyHealOperations(input, operations = []) {
     const patch = await (suggested ? patchSource.median(3) : patchSource)
       .png()
       .toBuffer();
-    const centerOpacity = suggested ? 0.42 : 1;
+    const centerOpacity = suggested
+      ? Math.max(0.3, Math.min(0.82, Number(operation.opacity) || 0.42))
+      : 1;
     const mask = Buffer.from(
       `<svg width="${size}" height="${size}"><defs><radialGradient id="m"><stop offset="45%" stop-color="white" stop-opacity="${centerOpacity}"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><circle cx="${radius}" cy="${radius}" r="${radius}" fill="url(#m)"/></svg>`,
     );
@@ -277,8 +279,9 @@ async function analyzeBlemishes(input) {
 async function applyAutomaticBlemishes(input, operations) {
   const level = operationLevel(operations, "temporary", 0);
   if (!level) return sharp(input).toBuffer();
-  const thresholds = [100, 91, 88, 84, 80];
-  const limits = [0, 1, 2, 4, 6];
+  const thresholds = [100, 88, 82, 76, 70];
+  const limits = [0, 2, 4, 7, 10];
+  const opacity = [0, 0.38, 0.52, 0.66, 0.78][level];
   const suggestions = (await analyzeBlemishes(input))
     .filter((item) => item.confidence >= thresholds[level])
     .slice(0, limits[level])
@@ -288,6 +291,7 @@ async function applyAutomaticBlemishes(input, operations) {
       radius: Math.min(radius, 0.014 + level * 0.001),
       kind,
       mode: "suggested",
+      opacity,
     }));
   return applyHealOperations(input, suggestions);
 }
@@ -300,19 +304,19 @@ async function applyFlyawayCleanup(input, operations) {
     .raw()
     .toBuffer({ resolveWithObject: true });
   const median = await sharp(input)
-    .median(3)
+    .median(level >= 3 ? 5 : 3)
     .ensureAlpha()
     .raw()
     .toBuffer();
-  const amount = [0, 0.2, 0.34, 0.5, 0.66][level];
+  const amount = [0, 0.35, 0.55, 0.78, 1][level];
   for (let index = 0; index < source.data.length; index += source.info.channels) {
     const r = source.data[index], g = source.data[index + 1], b = source.data[index + 2];
     const mr = median[index], mg = median[index + 1], mb = median[index + 2];
     const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
     const medianLuminance = 0.299 * mr + 0.587 * mg + 0.114 * mb;
     const simpleBackground =
-      medianLuminance > 115 && Math.max(mr, mg, mb) - Math.min(mr, mg, mb) < 52;
-    if (!simpleBackground || medianLuminance - luminance < 24) continue;
+      medianLuminance > 90 && Math.max(mr, mg, mb) - Math.min(mr, mg, mb) < 70;
+    if (!simpleBackground || medianLuminance - luminance < 12) continue;
     source.data[index] = Math.round(r + (mr - r) * amount);
     source.data[index + 1] = Math.round(g + (mg - g) * amount);
     source.data[index + 2] = Math.round(b + (mb - b) * amount);
@@ -403,25 +407,25 @@ async function applyPortraitTone(input, strength = 0, operations) {
       .ensureAlpha()
       .raw()
       .toBuffer();
-    const recovery = [0, 0.08, 0.14, 0.2, 0.27][underEyeLevel];
+    const recovery = [0, 0.18, 0.3, 0.45, 0.62][underEyeLevel];
     for (let index = 0; index < data.length; index += info.channels) {
       if (!subjectMask[index / info.channels]) continue;
       const luminance = 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
       const local = 0.299 * blurred[index] + 0.587 * blurred[index + 1] + 0.114 * blurred[index + 2];
       const shadowGap = local - luminance;
-      if (shadowGap < 9) continue;
-      const lift = Math.min(10, (shadowGap - 9) * recovery);
+      if (shadowGap < 4) continue;
+      const lift = Math.min(20, (shadowGap - 4) * recovery);
       for (let channel = 0; channel < 3; channel++)
         data[index + channel] = Math.round(Math.min(255, data[index + channel] + lift));
     }
   }
   if (teethLevel) {
-    const brighten = [0, 0.025, 0.045, 0.07, 0.1][teethLevel];
+    const brighten = [0, 0.06, 0.1, 0.16, 0.23][teethLevel];
     const width = info.width;
     for (let index = 0; index < data.length; index += info.channels) {
       const r = data[index], g = data[index + 1], b = data[index + 2];
       const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (luminance < 105 || luminance > 238 || Math.max(r, g, b) - Math.min(r, g, b) > 62 || r < b + 3)
+      if (luminance < 85 || luminance > 242 || Math.max(r, g, b) - Math.min(r, g, b) > 85 || r < b + 1)
         continue;
       const pixel = index / info.channels;
       const x = pixel % width, y = Math.floor(pixel / width);
