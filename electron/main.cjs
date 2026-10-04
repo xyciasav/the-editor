@@ -631,13 +631,14 @@ ipcMain.handle("shoot:create", async (event, shoot) => {
   fs.mkdirSync(configDir, { recursive: true });
   const previews = [];
   const failures = [];
+  const totalPhotos = shoot.files.length;
 
-  for (const [index, photo] of shoot.files.slice(0, 40).entries()) {
+  for (const [index, photo] of shoot.files.entries()) {
     event.sender.send("job:progress", {
       kind: "preview",
       current: index + 1,
-      total: Math.min(shoot.files.length, 40),
-      message: `Creating preview ${index + 1} of ${Math.min(shoot.files.length, 40)}`,
+      total: totalPhotos,
+      message: `Creating preview ${index + 1} of ${totalPhotos}`,
     });
     const photoKey = crypto
       .createHash("sha256")
